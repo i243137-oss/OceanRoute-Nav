@@ -1,0 +1,3 @@
+build/app.exe
+build/*.o
+build/*.dll
