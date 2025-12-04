@@ -2,7 +2,7 @@
 #include <fstream>
 #include <cstring>
 #include <iomanip>
-#include <cmath> // Needed for sin()
+#include <cmath> // For math functions
 #include <SFML/Graphics.hpp> 
 #include "DataStructures.h" 
 
@@ -12,12 +12,10 @@ using namespace std;
 // 0. Custom Helper Functions (No STL)
 // ==========================================
 
-// Helper to convert int to char array
 void intToString(int val, char* buffer) {
     sprintf(buffer, "%d", val);
 }
 
-// Helper to append char to string
 void appendChar(char* str, char c, int maxSize) {
     int len = strlen(str);
     if (len < maxSize - 1) {
@@ -26,22 +24,45 @@ void appendChar(char* str, char c, int maxSize) {
     }
 }
 
-// Helper to remove last char
 void popBack(char* str) {
     int len = strlen(str);
-    if (len > 0) {
-        str[len - 1] = '\0';
+    if (len > 0) str[len - 1] = '\0';
+}
+
+// Math helper for Hover Detection
+float getDistanceToLine(sf::Vector2f point, sf::Vector2f start, sf::Vector2f end) {
+    float A = point.x - start.x;
+    float B = point.y - start.y;
+    float C = end.x - start.x;
+    float D = end.y - start.y;
+
+    float dot = A * C + B * D;
+    float len_sq = C * C + D * D;
+    float param = -1;
+    if (len_sq != 0) param = dot / len_sq;
+
+    float xx, yy;
+
+    if (param < 0) {
+        xx = start.x; yy = start.y;
+    } else if (param > 1) {
+        xx = end.x; yy = end.y;
+    } else {
+        xx = start.x + param * C;
+        yy = start.y + param * D;
     }
+
+    float dx = point.x - xx;
+    float dy = point.y - yy;
+    return sqrt(dx * dx + dy * dy);
 }
 
 // ==========================================
 // 1. Global Data & Constants
 // ==========================================
-// Dynamic Array Pointer
 Port* ports = nullptr; 
 int totalPorts = 0;    
 
-// UI Constants
 const float SIDEBAR_WIDTH = 350.0f;
 const float MAP_OFFSET_X = 350.0f; 
 
@@ -50,15 +71,12 @@ int selectedStart = -1;
 int selectedEnd = -1;
 int hoveredPortIndex = -1; 
 
-// Text buffers instead of strings
 char inputStartName[50] = ""; 
 char inputEndName[50] = "";   
-char inputDateString[20] = "01/01/2024";
+char inputDateString[20] = "20/12/2024"; 
 char statusMessage[100] = "Ready to navigate.";
 char pathDetails[100] = ""; 
 
-bool isTypingStart = false; 
-bool isTypingEnd = false;
 bool isTypingDate = false;
 
 // Colors
@@ -71,7 +89,26 @@ sf::Color COL_INPUT_BG(255, 255, 255);
 sf::Color COL_INPUT_FOCUS(200, 230, 255);
 
 // ==========================================
-// 2. UI Components (Buttons & Boxes)
+// 2. Journey Data Structure
+// ==========================================
+
+struct Journey {
+    Route* legs[10]; // Max 10 stops
+    int legCount;
+    int totalCost;
+    int totalTimeMin;
+    bool isDirect; // Flag to prioritize display
+};
+
+Journey foundJourneys[50];
+int foundJourneysCount = 0;
+bool showJourneys = false;
+
+// Helpers for DFS - Dynamically allocated later
+bool* visited = nullptr; 
+
+// ==========================================
+// 3. UI Components
 // ==========================================
 struct Button {
     sf::RectangleShape shape;
@@ -156,52 +193,8 @@ struct InputBox {
     }
 };
 
-// Path Storage (Replaces std::vector)
-struct PathSegment {
-    sf::Vector2f start;
-    sf::Vector2f end;
-    PathSegment* next; // Linked list for segments
-};
-
-// Custom List for Path Segments
-struct PathList {
-    PathSegment* head;
-    
-    PathList() : head(nullptr) {}
-    
-    void add(sf::Vector2f s, sf::Vector2f e) {
-        PathSegment* newNode = new PathSegment;
-        newNode->start = s;
-        newNode->end = e;
-        newNode->next = head;
-        head = newNode;
-    }
-    
-    void clear() {
-        PathSegment* current = head;
-        while (current != nullptr) {
-            PathSegment* temp = current;
-            current = current->next;
-            delete temp;
-        }
-        head = nullptr;
-    }
-};
-
-PathList bestPathLines;
-bool pathFound = false;
-
-// Helpers for All Routes Mode
-struct PathData { int stops[50]; int count; };
-PathData allPaths[100];
-int allPathsCount = 0;
-bool showAllPaths = false;
-bool* visitedDFS = nullptr; 
-int tempDFS[50];
-long long dfsSteps = 0;
-
 // ==========================================
-// 3. Data Loading & Mapping
+// 4. Data Loading & Mapping
 // ==========================================
 
 int getPortIndex(const char* name) {
@@ -209,15 +202,12 @@ int getPortIndex(const char* name) {
     return -1;
 }
 
-// Manual Line Counting
 int countFileLines(const char* filename) {
     ifstream f(filename);
     if(!f.is_open()) return 0;
     int count = 0;
     char buffer[100];
-    while(f.getline(buffer, 100)) {
-        if(strlen(buffer) > 0) count++;
-    }
+    while(f.getline(buffer, 100)) if(strlen(buffer) > 0) count++;
     return count;
 }
 
@@ -256,38 +246,18 @@ long long getMinutes(Date d, Time t) {
     return ((long long)d.year*525600) + ((long long)d.month*43200) + ((long long)d.day*1440) + (t.hour*60) + t.minute;
 }
 
-// Manual String Parsing for Date
 Date parseDate(char* s) {
     Date d = {1, 1, 2024};
     int i = 0;
-    // Parse Day
     int val = 0;
-    while(s[i] != '/' && s[i] != '\0') {
-        val = val * 10 + (s[i] - '0');
-        i++;
-    }
-    if (val > 0) d.day = val;
-    if (s[i] == '\0') return d;
-    i++; // Skip /
-
-    // Parse Month
+    while(s[i] != '/' && s[i] != '\0') { val = val * 10 + (s[i] - '0'); i++; }
+    if (val > 0) d.day = val; if (s[i] == '\0') return d; i++;
     val = 0;
-    while(s[i] != '/' && s[i] != '\0') {
-        val = val * 10 + (s[i] - '0');
-        i++;
-    }
-    if (val > 0) d.month = val;
-    if (s[i] == '\0') return d;
-    i++; // Skip /
-
-    // Parse Year
+    while(s[i] != '/' && s[i] != '\0') { val = val * 10 + (s[i] - '0'); i++; }
+    if (val > 0) d.month = val; if (s[i] == '\0') return d; i++;
     val = 0;
-    while(s[i] != '\0') {
-        val = val * 10 + (s[i] - '0');
-        i++;
-    }
+    while(s[i] != '\0') { val = val * 10 + (s[i] - '0'); i++; }
     if (val > 0) d.year = val;
-
     return d;
 }
 
@@ -296,7 +266,7 @@ void loadData() {
     if(totalPorts == 0) { cout << "Error: ports.txt empty or missing!" << endl; return; }
 
     ports = new Port[totalPorts];
-    visitedDFS = new bool[totalPorts]; 
+    visited = new bool[totalPorts]; 
 
     ifstream fp("ports.txt");
     if(fp.is_open()) {
@@ -326,204 +296,121 @@ void loadData() {
 }
 
 // ==========================================
-// 4. Algorithms Logic
+// 5. Time-Aware Search Algorithm
 // ==========================================
 
-void resetAlgorithms() {
-    for(int i=0; i<totalPorts; i++) {
-        ports[i].minCost = 99999999;
-        ports[i].minTime = 2000000000;
-        ports[i].parentIndex = -1;
-        ports[i].visited = false;
-        visitedDFS[i] = false;
+void findScheduledRoutes(int u, int target, int depth, long long currentArrivalTime, int currentCost, Route* pathSoFar[]) {
+    if (depth >= 5 || foundJourneysCount >= 10) return;
+
+    if (u == target) {
+        foundJourneys[foundJourneysCount].legCount = depth;
+        foundJourneys[foundJourneysCount].totalCost = currentCost;
+        foundJourneys[foundJourneysCount].isDirect = (depth == 1);
+        for(int k=0; k<depth; k++) {
+            foundJourneys[foundJourneysCount].legs[k] = pathSoFar[k];
+        }
+        foundJourneysCount++;
+        return;
     }
-    bestPathLines.clear();
-    pathFound = false;
-    allPathsCount = 0;
-    dfsSteps = 0;
-    showAllPaths = false;
+
+    visited[u] = true;
+
+    Route* r = ports[u].headRoute;
+    
+    while (r != nullptr) {
+        int v = r->destinationIndex;
+        if (!visited[v]) {
+            long long departureTime = getMinutes(r->voyageDate, r->departureTime);
+            
+            // Check for valid connection (Must depart at or after arrival)
+            if (departureTime >= currentArrivalTime) {
+                pathSoFar[depth] = r;
+                long long arrivalTime = getMinutes(r->voyageDate, r->arrivalTime);
+                if (r->arrivalTime.hour < r->departureTime.hour) arrivalTime += 1440; 
+
+                findScheduledRoutes(v, target, depth + 1, arrivalTime, currentCost + r->cost, pathSoFar);
+            } 
+        }
+        r = r->next;
+    }
+    
+    visited[u] = false; 
 }
 
-void runCheapest(int start, int end) {
-    resetAlgorithms();
-    if(start == -1 || end == -1) { strcpy(statusMessage, "Error: Select Start & End Points"); return; }
+void runSearch(int start, int end, Date userDate) {
+    if (start == -1 || end == -1) { strcpy(statusMessage, "Select Start & End first!"); return; }
+    
+    foundJourneysCount = 0;
+    for(int i=0; i<totalPorts; i++) visited[i] = false;
+    
+    strcpy(statusMessage, "Searching scheduled routes...");
+    showJourneys = false;
 
-    MinHeap pq(totalPorts * totalPorts);
-    ports[start].minCost = 0;
-    pq.push(start, 0);
+    Route* tempPath[10];
+    Time startTime = {0, 0};
+    long long userStartTime = getMinutes(userDate, startTime);
+    
+    findScheduledRoutes(start, end, 0, userStartTime, 0, tempPath);
 
-    while(!pq.isEmpty()) {
-        int u = pq.extractMin().portIndex;
-        if(ports[u].visited) continue;
-        ports[u].visited = true;
-        if(u == end) break;
-
-        Route* e = ports[u].headRoute;
-        while(e) {
-            int v = e->destinationIndex;
-            if(!ports[v].visited && ports[u].minCost + e->cost < ports[v].minCost) {
-                ports[v].minCost = ports[u].minCost + e->cost;
-                ports[v].parentIndex = u;
-                pq.push(v, ports[v].minCost);
-            }
-            e = e->next;
-        }
-    }
-
-    if(ports[end].minCost != 99999999) {
-        strcpy(statusMessage, "Cheapest Route Calculated!");
-        char costStr[50];
-        intToString(ports[end].minCost, costStr);
-        strcpy(pathDetails, "Total Cost: $");
-        strcat(pathDetails, costStr);
-         if (ports[end].minCost != 99999999) {
-        statusMessage = "Route Found! Total: $" + to_string(ports[end].minCost);
+    if (foundJourneysCount > 0) {
+        // --- NEW: Check if found route is on the SAME date ---
+        Route* firstLeg = foundJourneys[0].legs[0];
         
-        // Reconstruct Path for text display
-        IntStack pathStack;
-        int curr = end;
-        while (curr != -1) {
-            pathStack.push(curr);
-            curr = ports[curr].parentIndex;
-        }
+        bool exactDateMatch = (firstLeg->voyageDate.day == userDate.day && 
+                               firstLeg->voyageDate.month == userDate.month &&
+                               firstLeg->voyageDate.year == userDate.year);
 
-        pathDetails = "VOYAGE PLAN:\n";
-        while (!pathStack.isEmpty()) {
-            int pIdx = pathStack.pop();
-            pathDetails += "-> ";
-            pathDetails += ports[pIdx].name;
-            pathDetails += "\n";
-        }
+        char dateBuff[20];
+        sprintf(dateBuff, "%d/%d/%d", firstLeg->voyageDate.day, firstLeg->voyageDate.month, firstLeg->voyageDate.year);
 
+        if (exactDateMatch) {
+            strcpy(statusMessage, "Route Found on Selected Date!");
+            strcpy(pathDetails, "Departing: "); strcat(pathDetails, dateBuff);
+        } else {
+            strcpy(statusMessage, "No ship on selected date.");
+            strcpy(pathDetails, "Next available: "); strcat(pathDetails, dateBuff);
+        }
+        showJourneys = true;
     } else {
-        statusMessage = "No route possible.";
-        pathDetails = "";
-    }
+        // --- LOGIC FOR NEXT AVAILABLE SHIP ---
+        long long minDeparture = -1;
+        Route* bestNext = nullptr;
         
-        pathFound = true;
-        int curr = end;
-        while(curr != start && curr != -1) {
-            int p = ports[curr].parentIndex;
-            if(p != -1) {
-                // FIXED: Store segments as Source -> Dest for correct animation flow
-                bestPathLines.add(sf::Vector2f(ports[p].x, ports[p].y), sf::Vector2f(ports[curr].x, ports[curr].y));
-            }
-            curr = p;
-        }
-    } else {
-        strcpy(statusMessage, "No path exists.");
-    }
-}
-
-void runFastest(int start, int end, Date date) {
-    resetAlgorithms();
-    if(start == -1 || end == -1) { strcpy(statusMessage, "Error: Select Start & End Points"); return; }
-
-    MinHeap pq(totalPorts * totalPorts);
-    Time t = {0,0};
-    long long startMin = getMinutes(date, t);
-    ports[start].minTime = (int)startMin;
-    pq.push(start, ports[start].minTime);
-
-    while(!pq.isEmpty()) {
-        int u = pq.extractMin().portIndex;
-        int currT = ports[u].minTime;
-        
-        if(ports[u].visited) continue;
-        ports[u].visited = true;
-        if(u == end) break;
-
-        Route* e = ports[u].headRoute;
-        while(e) {
-            int v = e->destinationIndex;
-            long long dep = getMinutes(e->voyageDate, e->departureTime);
-            long long arr = getMinutes(e->voyageDate, e->arrivalTime);
-            if(e->arrivalTime.hour < e->departureTime.hour) arr += 1440; 
-
-            if(currT <= dep) { 
-                if(!ports[v].visited && arr < ports[v].minTime) {
-                    ports[v].minTime = (int)arr;
-                    ports[v].parentIndex = u;
-                    pq.push(v, (int)arr);
+        Route* r = ports[start].headRoute;
+        while(r != nullptr) {
+            long long dep = getMinutes(r->voyageDate, r->departureTime);
+            if (dep > userStartTime) {
+                if (minDeparture == -1 || dep < minDeparture) {
+                    minDeparture = dep;
+                    bestNext = r;
                 }
             }
-            e = e->next;
+            r = r->next;
         }
-    }
 
-    if(ports[end].minTime != 2000000000) {
-        strcpy(statusMessage, "Fastest Route Calculated!");
-        long long mins = ports[end].minTime - startMin;
-        char hoursStr[50];
-        intToString(mins/60, hoursStr);
-        strcpy(pathDetails, "Duration: ");
-        strcat(pathDetails, hoursStr);
-        strcat(pathDetails, " Hours");
-        
-        pathFound = true;
-        int curr = end;
-        while(curr != start && curr != -1) {
-            int p = ports[curr].parentIndex;
-            if(p != -1) {
-                // FIXED: Store segments as Source -> Dest for correct animation flow
-                bestPathLines.add(sf::Vector2f(ports[p].x, ports[p].y), sf::Vector2f(ports[curr].x, ports[curr].y));
-            }
-            curr = p;
+        if (bestNext != nullptr) {
+            strcpy(statusMessage, "No complete route found.");
+            strcpy(pathDetails, "Earliest ship: ");
+            char dateBuff[20];
+            sprintf(dateBuff, "%d/%d/%d", bestNext->voyageDate.day, bestNext->voyageDate.month, bestNext->voyageDate.year);
+            strcat(pathDetails, dateBuff);
+            strcat(pathDetails, " (");
+            strcat(pathDetails, bestNext->company);
+            strcat(pathDetails, ")");
+        } else {
+            strcpy(statusMessage, "No routes found.");
+            strcpy(pathDetails, "Try different ports.");
         }
-    } else {
-        strcpy(statusMessage, "No valid route for this date.");
-        strcpy(pathDetails, "Check schedule.");
-    }
-}
-
-void dfs(int u, int end, int d, int cost) {
-    if(dfsSteps++ > 100000 || allPathsCount >= 50 || d >= 20) return;
-    visitedDFS[u] = true;
-    tempDFS[d] = u;
-
-    if(u == end) {
-        allPaths[allPathsCount].count = d + 1;
-        for(int i=0; i<=d; i++) allPaths[allPathsCount].stops[i] = tempDFS[i];
-        allPathsCount++;
-    } else {
-        Route* e = ports[u].headRoute;
-        while(e) {
-            if(!visitedDFS[e->destinationIndex]) dfs(e->destinationIndex, end, d+1, cost);
-            e = e->next;
-        }
-    }
-    visitedDFS[u] = false;
-}
-
-void runAllRoutes(int start, int end) {
-    resetAlgorithms();
-    if(start == -1 || end == -1) { strcpy(statusMessage, "Error: Select Start & End Points"); return; }
-    
-    strcpy(statusMessage, "Searching connections...");
-    dfs(start, end, 0, 0);
-    
-    if(allPathsCount > 0) {
-        char countStr[20];
-        intToString(allPathsCount, countStr);
-        strcpy(statusMessage, "Found ");
-        strcat(statusMessage, countStr);
-        strcat(statusMessage, " routes.");
-        strcpy(pathDetails, "Shown in Blue.");
-        showAllPaths = true;
-    } else {
-        strcpy(statusMessage, "No routes found.");
     }
 }
 
 // ==========================================
-// 5. Visualization System
+// 6. Visualization
 // ==========================================
 
 void runGraphics() {
     sf::RenderWindow window(sf::VideoMode(1536 + (int)SIDEBAR_WIDTH, 1024), "OceanRoute Nav System", sf::Style::Close);
     window.setFramerateLimit(60);
-
-    sf::Clock animClock; // For path animation
 
     sf::Texture tMap, tPin;
     if(!tMap.loadFromFile("map.png")) cout << "Map Error" << endl;
@@ -537,189 +424,153 @@ void runGraphics() {
     sf::Font font;
     if(!font.loadFromFile("arial.ttf")) cout << "Font Error" << endl;
 
-    // --- GUI SETUP ---
-    // Sidebar on the LEFT (0 to 350)
     sf::RectangleShape sidebar(sf::Vector2f(SIDEBAR_WIDTH, 1024.0f));
     sidebar.setFillColor(COL_BG_DARK); 
-    sidebar.setPosition(0, 0); 
-    sidebar.setOutlineColor(sf::Color(100, 100, 100));
-    sidebar.setOutlineThickness(2);
-
-    float uiPadding = 20.0f;
     
-    sf::Text txtTitle("NAVIGATION CONTROL", font, 22); 
-    txtTitle.setPosition(uiPadding, 30); txtTitle.setFillColor(sf::Color(0, 255, 255)); 
-
-    sf::Text txtStart("Departure: None", font, 18); txtStart.setPosition(uiPadding, 80);
-    sf::Text txtEnd("Arrival:     None", font, 18); txtEnd.setPosition(uiPadding, 120);
-
-    sf::Text txtDateLabel("Voyage Date:", font, 18); txtDateLabel.setPosition(uiPadding, 170);
+    InputBox dateInput; dateInput.init(20, 200, 300, 35, font);
     
-    InputBox dateInput;
-    dateInput.init(uiPadding, 200, 300, 35, font);
+    Button btnSearch, btnClear;
+    btnSearch.init(20, 260, 300, 45, "Find Routes (Date)", font);
+    btnClear.init(20, 320, 300, 45, "Reset", font);
 
-    Button btnCheap, btnFast, btnAll, btnClear;
-    btnCheap.init(uiPadding, 260, 300, 45, "Cheapest ($)", font);
-    btnFast.init(uiPadding, 320, 300, 45, "Fastest (Time)", font);
-    btnAll.init(uiPadding, 380, 300, 45, "Show All Routes", font);
-    btnClear.init(uiPadding, 460, 300, 45, "Reset / Clear", font);
+    sf::Text txtStart("From: None", font, 18); txtStart.setPosition(20, 80);
+    sf::Text txtEnd("To:   None", font, 18); txtEnd.setPosition(20, 120);
+    sf::Text txtStatus(statusMessage, font, 16); txtStatus.setPosition(20, 400); txtStatus.setFillColor(sf::Color::Yellow);
+    sf::Text txtDetails(pathDetails, font, 18); txtDetails.setPosition(20, 440); txtDetails.setFillColor(sf::Color::Green);
 
-    sf::Text txtMsg(statusMessage, font, 16); 
-    txtMsg.setPosition(uiPadding, 540); 
-    txtMsg.setFillColor(sf::Color::Yellow);
-    
-    sf::Text txtRes(pathDetails, font, 20); 
-    txtRes.setPosition(uiPadding, 580); 
-    txtRes.setFillColor(sf::Color::Green);
+    sf::RectangleShape tooltipBox(sf::Vector2f(280, 120));
+    tooltipBox.setFillColor(sf::Color(0, 0, 0, 220));
+    tooltipBox.setOutlineThickness(1); tooltipBox.setOutlineColor(sf::Color::White);
+    sf::Text tooltipText("", font, 14); tooltipText.setFillColor(sf::Color::White);
 
     while(window.isOpen()) {
         sf::Event event;
         while(window.pollEvent(event)) {
             if(event.type == sf::Event::Closed) window.close();
 
-            if(event.type == sf::Event::TextEntered) {
-                if(isTypingDate) {
-                    if(event.text.unicode == 8) popBack(inputDateString);
-                    else if(event.text.unicode >= 32 && event.text.unicode < 128) appendChar(inputDateString, (char)event.text.unicode, 20);
-                }
+            if(event.type == sf::Event::TextEntered && isTypingDate) {
+                if(event.text.unicode == 8) popBack(inputDateString);
+                else if(event.text.unicode < 128) appendChar(inputDateString, (char)event.text.unicode, 20);
             }
 
             if(event.type == sf::Event::MouseButtonPressed) {
                 sf::Vector2i pos = sf::Mouse::getPosition(window);
                 
-                if(dateInput.isClicked(pos)) isTypingDate = true;
-                else isTypingDate = false;
+                if(dateInput.isClicked(pos)) isTypingDate = true; else isTypingDate = false;
 
                 if(pos.x > SIDEBAR_WIDTH) { 
                     for(int i=0; i<totalPorts; i++) {
                         if(abs(pos.x - ports[i].x) < 20 && abs(pos.y - ports[i].y) < 20) {
                             if(event.mouseButton.button == sf::Mouse::Left) {
                                 selectedStart = i; 
-                                strcpy(inputStartName, ports[i].name);
-                                char buffer[60] = "Departure: ";
-                                strcat(buffer, inputStartName);
-                                txtStart.setString(buffer);
+                                char buff[60] = "From: "; strcat(buff, ports[i].name); txtStart.setString(buff);
                             } else if(event.mouseButton.button == sf::Mouse::Right) {
-                                selectedEnd = i; 
-                                strcpy(inputEndName, ports[i].name);
-                                char buffer[60] = "Arrival:     ";
-                                strcat(buffer, inputEndName);
-                                txtEnd.setString(buffer);
+                                selectedEnd = i;
+                                char buff[60] = "To:   "; strcat(buff, ports[i].name); txtEnd.setString(buff);
                             }
                         }
                     }
                 }
 
-                if(btnCheap.isClicked(pos)) runCheapest(selectedStart, selectedEnd);
-                if(btnFast.isClicked(pos)) runFastest(selectedStart, selectedEnd, parseDate(inputDateString));
-                if(btnAll.isClicked(pos)) runAllRoutes(selectedStart, selectedEnd);
+                if(btnSearch.isClicked(pos)) runSearch(selectedStart, selectedEnd, parseDate(inputDateString));
                 if(btnClear.isClicked(pos)) {
-                    resetAlgorithms(); selectedStart = -1; selectedEnd = -1;
-                    inputStartName[0] = '\0'; inputEndName[0] = '\0'; 
-                    txtStart.setString("Departure: None"); txtEnd.setString("Arrival:     None");
+                    selectedStart = -1; selectedEnd = -1; showJourneys = false;
                     strcpy(statusMessage, "Ready."); strcpy(pathDetails, "");
+                    txtStart.setString("From: None"); txtEnd.setString("To:   None");
                 }
             }
         }
 
         sf::Vector2i mPos = sf::Mouse::getPosition(window);
-        hoveredPortIndex = -1;
-        if(mPos.x > SIDEBAR_WIDTH) {
-            for(int i=0; i<totalPorts; i++) {
-                if(abs(mPos.x - ports[i].x) < 15 && abs(mPos.y - ports[i].y) < 15) {
-                    hoveredPortIndex = i;
-                    break;
-                }
-            }
-        }
-
-        btnCheap.update(mPos); btnFast.update(mPos); btnAll.update(mPos); btnClear.update(mPos);
+        btnSearch.update(mPos); btnClear.update(mPos);
         dateInput.update(inputDateString, isTypingDate);
-        txtMsg.setString(statusMessage); txtRes.setString(pathDetails);
+        txtStatus.setString(statusMessage); txtDetails.setString(pathDetails);
 
         window.clear(sf::Color(30, 30, 30));
         window.draw(sMap);
 
-        float animTime = animClock.getElapsedTime().asSeconds();
-        
-        // --- DRAW ALL PATHS ---
-        if(showAllPaths) {
-            for(int i=0; i<allPathsCount; i++) {
-                for(int j=0; j<allPaths[i].count-1; j++) {
-                    int u = allPaths[i].stops[j], v = allPaths[i].stops[j+1];
-                    sf::Vertex line[] = {
-                        sf::Vertex(sf::Vector2f(ports[u].x, ports[u].y), sf::Color(0, 255, 255, 50)),
-                        sf::Vertex(sf::Vector2f(ports[v].x, ports[v].y), sf::Color(0, 255, 255, 50))
-                    };
-                    window.draw(line, 2, sf::Lines);
+        bool hoverFound = false;
+        if (showJourneys) {
+            for(int i=0; i<foundJourneysCount; i++) {
+                Journey& j = foundJourneys[i];
+                float offset = (i - foundJourneysCount/2.0f) * 4.0f; // Increase separation for clarity
+
+                // Determine color: Gold for Direct, Green for Connecting
+                sf::Color pathColor = j.isDirect ? sf::Color(255, 215, 0, 220) : sf::Color(0, 255, 0, 180);
+
+                for(int k=0; k<j.legCount; k++) {
+                    Route* r = j.legs[k];
+                    
+                    // Logic to find source of this leg
+                    int u = (k == 0) ? selectedStart : -1;
+                    // If not first leg, we need to find which port this route originates from
+                    // Since 'r' only knows destination, we infer from previous leg's destination
+                    if (k > 0) u = j.legs[k-1]->destinationIndex;
+
+                    int v = r->destinationIndex;
+
+                    if (u != -1) {
+                        sf::Vector2f p1(ports[u].x + offset, ports[u].y + offset);
+                        sf::Vector2f p2(ports[v].x + offset, ports[v].y + offset);
+
+                        sf::Vertex line[] = {
+                            sf::Vertex(p1, pathColor),
+                            sf::Vertex(p2, pathColor)
+                        };
+                        window.draw(line, 2, sf::Lines);
+
+                        float dist = getDistanceToLine(sf::Vector2f(mPos.x, mPos.y), p1, p2);
+                        if (dist < 6.0f && !hoverFound) {
+                            hoverFound = true;
+                            
+                            char info[300] = "";
+                            if(j.isDirect) strcat(info, "[DIRECT ROUTE]\n");
+                            else strcat(info, "[CONNECTING ROUTE]\n");
+                            
+                            strcat(info, "Co: "); strcat(info, r->company); strcat(info, "\n");
+                            char buff[20];
+                            strcat(info, "Cost: $"); intToString(r->cost, buff); strcat(info, buff); strcat(info, "\n");
+                            
+                            strcat(info, "Dep: "); intToString(r->departureTime.hour, buff); strcat(info, buff); strcat(info, ":");
+                            if(r->departureTime.minute < 10) strcat(info, "0");
+                            intToString(r->departureTime.minute, buff); strcat(info, buff);
+                            
+                            strcat(info, "\nArr: "); intToString(r->arrivalTime.hour, buff); strcat(info, buff); strcat(info, ":");
+                            if(r->arrivalTime.minute < 10) strcat(info, "0");
+                            intToString(r->arrivalTime.minute, buff); strcat(info, buff);
+                            
+                            tooltipText.setString(info);
+                            tooltipBox.setPosition(mPos.x + 15, mPos.y + 15);
+                            tooltipText.setPosition(mPos.x + 20, mPos.y + 20);
+                            
+                            window.draw(tooltipBox);
+                            window.draw(tooltipText);
+                        }
+                    }
                 }
             }
         }
 
-        // --- DRAW BEST PATH (Improved UI) ---
-        if(pathFound) {
-            // Pulsating Green Effect
-            uint8_t alpha = 150 + (uint8_t)(105 * sin(animTime * 5.0f));
-            sf::Color pathColor(0, 255, 0, alpha); // Green with dynamic alpha
-
-            PathSegment* seg = bestPathLines.head;
-            while (seg != nullptr) {
-                // 1. Draw Thick Line
-                for(float w=-3; w<=3; w+=1.0f) {
-                    sf::Vertex line[] = {
-                        sf::Vertex(sf::Vector2f(seg->start.x+w, seg->start.y+w), pathColor),
-                        sf::Vertex(sf::Vector2f(seg->end.x+w, seg->end.y+w), pathColor)
-                    };
-                    window.draw(line, 2, sf::Lines);
-                }
-
-                // 2. Draw Moving Particle (Ship Flow)
-                float t = fmod(animTime * 1.5f, 1.0f); // 0.0 to 1.0 progress
-                sf::Vector2f dotPos = seg->start + (seg->end - seg->start) * t;
-                
-                sf::CircleShape dot(4);
-                dot.setOrigin(4, 4);
-                dot.setPosition(dotPos);
-                dot.setFillColor(sf::Color::White); // White dot moving on green path
-                window.draw(dot);
-
-                seg = seg->next;
-            }
-        }
-
-        // --- DRAW PINS ---
         for(int i=0; i<totalPorts; i++) {
-            sf::Color col = sf::Color::White;
-            float scale = 40.0f / tPin.getSize().y;
-            
-            if(i == selectedStart) { col = sf::Color::Green; scale *= 1.3f; }
-            else if(i == selectedEnd) { col = sf::Color::Red; scale *= 1.3f; }
-            if(i == hoveredPortIndex) scale *= 1.2f;
-            
             if(hasPin) {
-                sf::Sprite p(tPin); p.setColor(col); p.setScale(scale, scale);
-                p.setOrigin(tPin.getSize().x/2.0f, (float)tPin.getSize().y);
+                sf::Sprite p(tPin); 
                 p.setPosition(ports[i].x, ports[i].y);
+                float s = 40.0f/tPin.getSize().y;
+                if (i==selectedStart) { p.setColor(sf::Color::Green); s*=1.3f; }
+                else if (i==selectedEnd) { p.setColor(sf::Color::Red); s*=1.3f; }
+                else p.setColor(sf::Color::White);
+                
+                p.setScale(s, s);
+                p.setOrigin(tPin.getSize().x/2.0f, tPin.getSize().y);
                 window.draw(p);
-            } else {
-                sf::CircleShape c(6); c.setFillColor(i==selectedStart ? sf::Color::Green : sf::Color::Red);
-                c.setPosition(ports[i].x-6, ports[i].y-6); window.draw(c);
-            }
-
-            if(i == hoveredPortIndex) {
-                sf::Text t(ports[i].name, font, 16);
-                t.setPosition(ports[i].x+10, ports[i].y-30);
-                t.setOutlineColor(sf::Color::Black); t.setOutlineThickness(2);
-                window.draw(t);
             }
         }
 
         window.draw(sidebar);
-        window.draw(txtTitle); window.draw(txtStart); window.draw(txtEnd);
-        window.draw(txtDateLabel); 
+        window.draw(txtStart); window.draw(txtEnd);
         dateInput.draw(window);
-        window.draw(txtMsg); window.draw(txtRes);
-        btnCheap.draw(window); btnFast.draw(window); btnAll.draw(window); btnClear.draw(window);
+        btnSearch.draw(window); btnClear.draw(window);
+        window.draw(txtStatus); window.draw(txtDetails);
 
         window.display();
     }
@@ -731,7 +582,6 @@ int main() {
     runGraphics();
     
     if(ports) delete[] ports;
-    if(visitedDFS) delete[] visitedDFS;
-    bestPathLines.clear();
+    if(visited) delete[] visited;
     return 0;
 }
