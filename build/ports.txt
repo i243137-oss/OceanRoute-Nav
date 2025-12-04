@@ -38,3 +38,6 @@ Alexandria 225
 Istanbul 252
 Singapore 946
 Busan 1108
+Bangkok 350
+Chennai 380
+Suez 200
