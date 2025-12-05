@@ -10,10 +10,10 @@
 using namespace std;
 
 // Debug flag for route evaluation logging
-#define DEBUG_ROUTE_EVALUATION 1
+#define DEBUG_ROUTE_EVALUATION 0
 
 // Debug flag to enable demo queue data at Singapore
-#define ENABLE_DEMO_QUEUE_DATA 1
+#define ENABLE_DEMO_QUEUE_DATA 0
 
 // Cross-platform case-insensitive string comparison
 #ifdef _WIN32
@@ -972,11 +972,11 @@ void dijkstra_shortest_cost_scheduled(int source, int destination, Date userDate
             int v = r->destinationIndex;
             
             #if DEBUG_ROUTE_EVALUATION
-            printf("DEBUG: Evaluating route %s -> %s, Company: %s\n", 
-                   ports[u].name, ports[v].name, r->company);
-            
-            bool companyOk = isCompanyPreferred(r->company);
-            printf("DEBUG: Company preferred: %s\n", companyOk ? "YES" : "NO");
+            // printf("DEBUG: Evaluating route %s -> %s, Company: %s\n", 
+            //        ports[u].name, ports[v].name, r->company);
+            // 
+            // bool companyOk = isCompanyPreferred(r->company);
+            // printf("DEBUG: Company preferred: %s\n", companyOk ? "YES" : "NO");
             #else
             bool companyOk = isCompanyPreferred(r->company);
             #endif
@@ -1003,17 +1003,17 @@ void dijkstra_shortest_cost_scheduled(int source, int destination, Date userDate
                         exploredPorts[v] = true;
                         pq.push(v, newCost);
                         #if DEBUG_ROUTE_EVALUATION
-                        printf("DEBUG: Route accepted! Cost: %lld\n", newCost);
+                        // printf("DEBUG: Route accepted! Cost: %lld\n", newCost);
                         #endif
                     }
                 } else {
                     #if DEBUG_ROUTE_EVALUATION
-                    printf("DEBUG: Route rejected (timing constraints)\n");
+                    // printf("DEBUG: Route rejected (timing constraints)\n");
                     #endif
                 }
             } else {
                 #if DEBUG_ROUTE_EVALUATION
-                printf("DEBUG: Route rejected (port avoided or company not preferred)\n");
+                // printf("DEBUG: Route rejected (port avoided or company not preferred)\n");
                 #endif
             }
             r = r->next;
@@ -1151,13 +1151,13 @@ void findScheduledRoutes(int u, int target, int depth, long long currentArrivalT
     while (r != nullptr) {
         int v = r->destinationIndex;
         #if DEBUG_ROUTE_EVALUATION
-        printf("DEBUG DFS: Checking %s -> %s, Company: %s\n", 
-               ports[u].name, ports[v].name, r->company);
+        // printf("DEBUG DFS: Checking %s -> %s, Company: %s\n", 
+        //        ports[u].name, ports[v].name, r->company);
         #endif
         
         if (!visited[v] && !isPortAvoided(v) && isCompanyPreferred(r->company)) {
             #if DEBUG_ROUTE_EVALUATION
-            printf("DEBUG DFS: Route matches preferences\n");
+            // printf("DEBUG DFS: Route matches preferences\n");
             #endif
             long long departureTime = getMinutes(r->voyageDate, r->departureTime);
             long long requiredDepartureTime = currentArrivalTime + 120;
@@ -1171,8 +1171,8 @@ void findScheduledRoutes(int u, int target, int depth, long long currentArrivalT
             }
         } else {
             #if DEBUG_ROUTE_EVALUATION
-            printf("DEBUG DFS: Route rejected - visited:%d, avoided:%d, companyOk:%d\n",
-                   visited[v], isPortAvoided(v), isCompanyPreferred(r->company));
+            // printf("DEBUG DFS: Route rejected - visited:%d, avoided:%d, companyOk:%d\n",
+            //        visited[v], isPortAvoided(v), isCompanyPreferred(r->company));
             #endif
         }
         r = r->next;
@@ -1343,8 +1343,8 @@ void spawnShip(Journey& journey) {
     addShipLog(logMsg, true);
     
     #if DEBUG_ROUTE_EVALUATION
-    printf("DEBUG SPAWN: Ship #%d spawned with departure=%lld, arrival=%lld, nextDeparture=%lld\n", 
-           ship->shipId, ship->departureTimeMin, ship->arrivalTimeMin, ship->nextDepartureMin);
+    // printf("DEBUG SPAWN: Ship #%d spawned with departure=%lld, arrival=%lld, nextDeparture=%lld\n", 
+    //        ship->shipId, ship->departureTimeMin, ship->arrivalTimeMin, ship->nextDepartureMin);
     #endif
     
     addShipToActiveList(ship);
@@ -1463,10 +1463,10 @@ void processSimulationTick() {
                 
                 // DEBUG: Log time comparison for debugging departure issues
                 #if DEBUG_ROUTE_EVALUATION
-                printf("DEBUG DOCKED: Ship #%d at %s: simTime=%lld, nextDeparture=%lld, diff=%lld min\n",
-                       curr->shipId, ports[curr->currentPortIndex].name,
-                       simTimeMinutes, curr->nextDepartureMin,
-                       curr->nextDepartureMin - simTimeMinutes);
+                // printf("DEBUG DOCKED: Ship #%d at %s: simTime=%lld, nextDeparture=%lld, diff=%lld min\n",
+                //        curr->shipId, ports[curr->currentPortIndex].name,
+                //        simTimeMinutes, curr->nextDepartureMin,
+                //        curr->nextDepartureMin - simTimeMinutes);
                 #endif
                 
                 if (simTimeMinutes >= curr->nextDepartureMin) {
@@ -1865,16 +1865,16 @@ void runGraphics() {
                             }
                             
                             // Debug output
-                            printf("DEBUG: Preferences Applied\n");
-                            printf("DEBUG: usePreferences = %s\n", userPrefs.usePreferences ? "true" : "false");
-                            printf("DEBUG: avoidedPortCount = %d\n", userPrefs.avoidedPortCount);
-                            for (int i = 0; i < userPrefs.avoidedPortCount; i++) {
-                                printf("DEBUG: avoidedPorts[%d] = '%s'\n", i, userPrefs.avoidedPorts[i]);
-                            }
-                            printf("DEBUG: preferredCompanyCount = %d\n", userPrefs.preferredCompanyCount);
-                            for (int i = 0; i < userPrefs.preferredCompanyCount; i++) {
-                                printf("DEBUG: preferredCompanies[%d] = '%s'\n", i, userPrefs.preferredCompanies[i]);
-                            }
+                            // printf("DEBUG: Preferences Applied\n");
+                            // printf("DEBUG: usePreferences = %s\n", userPrefs.usePreferences ? "true" : "false");
+                            // printf("DEBUG: avoidedPortCount = %d\n", userPrefs.avoidedPortCount);
+                            // for (int i = 0; i < userPrefs.avoidedPortCount; i++) {
+                            //     printf("DEBUG: avoidedPorts[%d] = '%s'\n", i, userPrefs.avoidedPorts[i]);
+                            // }
+                            // printf("DEBUG: preferredCompanyCount = %d\n", userPrefs.preferredCompanyCount);
+                            // for (int i = 0; i < userPrefs.preferredCompanyCount; i++) {
+                            //     printf("DEBUG: preferredCompanies[%d] = '%s'\n", i, userPrefs.preferredCompanies[i]);
+                            // }
                             
                             strcpy(statusMessage, "Filters applied!");
                         } else {
@@ -2006,9 +2006,9 @@ void runGraphics() {
                         
                         #if DEBUG_ROUTE_EVALUATION
                         // Debug: Print to verify correct time initialization
-                        printf("[DEBUG] Simulation initialized: %02d/%02d/%04d %02d:%02d (simTimeMinutes=%lld)\n",
-                               timeSim.day, timeSim.month, timeSim.year,
-                               timeSim.hour, timeSim.minute, simTimeMinutes);
+                        // printf("[DEBUG] Simulation initialized: %02d/%02d/%04d %02d:%02d (simTimeMinutes=%lld)\n",
+                        //        timeSim.day, timeSim.month, timeSim.year,
+                        //        timeSim.hour, timeSim.minute, simTimeMinutes);
                         #endif
                         
                         timeSim.isPaused = false;
@@ -2320,15 +2320,15 @@ void runGraphics() {
                 
                 #if DEBUG_ROUTE_EVALUATION
                 // Debug: Log ship drawing (throttled to avoid spam)
-                static int debugDrawCounter = 0;
-                if (debugDrawCounter++ % DEBUG_LOG_THROTTLE_FRAMES == 0) {
-                    printf("[SHIP_DRAW] Ship #%d TRAVELING: progress=%.3f, time=%lld/%lld, pos=(%.1f,%.1f), origin=%s(%.1f,%.1f), dest=%s(%.1f,%.1f)\n",
-                           ship->shipId, progress, elapsedTime, totalTravelTime,
-                           ports[originIdx].x + (ports[destIdx].x - ports[originIdx].x) * progress,
-                           ports[originIdx].y + (ports[destIdx].y - ports[originIdx].y) * progress,
-                           ports[originIdx].name, ports[originIdx].x, ports[originIdx].y,
-                           ports[destIdx].name, ports[destIdx].x, ports[destIdx].y);
-                }
+                // static int debugDrawCounter = 0;
+                // if (debugDrawCounter++ % DEBUG_LOG_THROTTLE_FRAMES == 0) {
+                //     printf("[SHIP_DRAW] Ship #%d TRAVELING: progress=%.3f, time=%lld/%lld, pos=(%.1f,%.1f), origin=%s(%.1f,%.1f), dest=%s(%.1f,%.1f)\n",
+                //            ship->shipId, progress, elapsedTime, totalTravelTime,
+                //            ports[originIdx].x + (ports[destIdx].x - ports[originIdx].x) * progress,
+                //            ports[originIdx].y + (ports[destIdx].y - ports[originIdx].y) * progress,
+                //            ports[originIdx].name, ports[originIdx].x, ports[originIdx].y,
+                //            ports[destIdx].name, ports[destIdx].x, ports[destIdx].y);
+                // }
                 #endif
                 
                 // Interpolate position
@@ -2369,11 +2369,11 @@ void runGraphics() {
         
         #if DEBUG_ROUTE_EVALUATION
         // Debug: Log ship state counts (throttled to avoid spam)
-        static int debugStateCounter = 0;
-        if (debugStateCounter++ % DEBUG_LOG_THROTTLE_FRAMES == 0 && (travelingCount > 0 || waitingCount > 0 || dockedCount > 0)) {
-            printf("[SHIP_STATES] TRAVELING=%d, WAITING=%d, DOCKED=%d (total=%d)\n",
-                   travelingCount, waitingCount, dockedCount, travelingCount + waitingCount + dockedCount);
-        }
+        // static int debugStateCounter = 0;
+        // if (debugStateCounter++ % DEBUG_LOG_THROTTLE_FRAMES == 0 && (travelingCount > 0 || waitingCount > 0 || dockedCount > 0)) {
+        //     printf("[SHIP_STATES] TRAVELING=%d, WAITING=%d, DOCKED=%d (total=%d)\n",
+        //            travelingCount, waitingCount, dockedCount, travelingCount + waitingCount + dockedCount);
+        // }
         #endif
 
         for(int i=0; i<totalPorts; i++) {
