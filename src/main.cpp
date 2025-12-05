@@ -136,7 +136,7 @@ Ship* activeShipsHead = nullptr;  // Linked list of active ships
 int nextShipId = 1;                // Unique ID counter for ships
 long long simTimeMinutes = 0;      // Current simulation time in absolute minutes
 bool simPaused = true;             // Simulation starts paused
-int simSpeed = SIM_SPEED_60X;      // Default speed: 60x (1 day = ~24 real minutes)
+int simSpeed = SIM_SPEED_1X;       // Default speed: 1x (real-time simulation)
 sf::Clock simClock;                // Clock for tracking real time
 float simAccumulator = 0.0f;       // Accumulator for fractional minutes
 
@@ -348,7 +348,7 @@ void updateSimulatedTime(float deltaTime) {
         
         // Handle day overflow -> months
         while (timeSim.day > getDaysInMonth(timeSim.month, timeSim.year)) {
-            timeSim.day -= getDaysInMonth(timeSim.month, timeSim.year);
+            timeSim.day = 1;  // Start of next month
             timeSim.month++;
             
             // Handle month overflow -> years
@@ -1848,17 +1848,21 @@ void runGraphics() {
                 if(btnSpeedCycle.isClicked(pos)) {
                     // Cycle through speed options: 0.5x -> 1x -> 2x -> 5x -> 10x -> 0.5x
                     // Speed limits: 0.5x to 10x maximum (as per requirements)
-                    if (shipSim.simulationSpeed < 1.0f) {
+                    if (shipSim.simulationSpeed <= 0.5f) {
                         shipSim.simulationSpeed = 1.0f;
-                    } else if (shipSim.simulationSpeed < 2.0f) {
+                    } else if (shipSim.simulationSpeed <= 1.0f) {
                         shipSim.simulationSpeed = 2.0f;
-                    } else if (shipSim.simulationSpeed < 5.0f) {
+                    } else if (shipSim.simulationSpeed <= 2.0f) {
                         shipSim.simulationSpeed = 5.0f;
-                    } else if (shipSim.simulationSpeed < 10.0f) {
+                    } else if (shipSim.simulationSpeed <= 5.0f) {
                         shipSim.simulationSpeed = 10.0f;
                     } else {
                         shipSim.simulationSpeed = 0.5f;
                     }
+                    
+                    // Synchronize both speed variables
+                    // simSpeed is used for ship state machine, shipSim.simulationSpeed for time display
+                    simSpeed = (int)(shipSim.simulationSpeed * 60.0f); // Convert to minutes per second
                     
                     // Update button label with proper formatting
                     char speedLabel[SPEED_LABEL_BUFFER_SIZE];
