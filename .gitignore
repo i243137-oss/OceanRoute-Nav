@@ -1,3 +1,7 @@
 build/app.exe
 build/*.o
 build/*.dll
+*.o
+*.exe
+src/*.exe
+src/*.o
