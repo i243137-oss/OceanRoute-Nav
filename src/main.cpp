@@ -947,7 +947,9 @@ void spawnShip(Journey& journey) {
 void formatSimDateTime(long long absoluteMinutes, char* buffer, int bufferSize) {
     // Convert absolute minutes (from getMinutes()) back to date/time
     // Reverse the calculation in getMinutes(): year*525600 + month*43200 + day*1440 + hour*60 + minute
-    // Note: Uses simplified calendar (30 days/month, 365 days/year) to match getMinutes()
+    // Note: Uses simplified calendar from existing codebase (30 days/month, 12*30=360 days/year)
+    // The 525600 constant is 365 days but months are 30 days, creating a slight inconsistency
+    // This matches the existing getMinutes() implementation used throughout the project
     
     long long remaining = absoluteMinutes;
     
@@ -1064,9 +1066,9 @@ void processSimulationTick() {
 void updateSimulationClock(float deltaTime) {
     if (simPaused) return;
     
-    // deltaTime is in seconds, simSpeed is the multiplier
+    // deltaTime is in seconds, simSpeed is the speed multiplier
     // At 60x speed: 1 real second = 60 sim minutes
-    // simSpeed is already in minutes per real-time minute, so multiply by 60 for minutes per second
+    // simSpeed directly represents simulation minutes per real-time second
     simAccumulator += deltaTime * simSpeed;
     
     // Process whole minutes
