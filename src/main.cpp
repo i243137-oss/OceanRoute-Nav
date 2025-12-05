@@ -114,6 +114,7 @@ const int DEMO_SERVICE_COUNT = 2;      // Number of ships being serviced in Sing
 // UI constants
 const int QUEUE_LABEL_BUFFER_SIZE = 50; // Buffer size for queue label text
 const int SPEED_LABEL_BUFFER_SIZE = 30; // Buffer size for speed label text
+const int DEBUG_LOG_THROTTLE_FRAMES = 60; // Throttle debug logging to every N frames (60 frames ~ 1 second at 60fps)
 
 int selectedStart = -1;
 int selectedEnd = -1;
@@ -137,7 +138,7 @@ Ship* activeShipsHead = nullptr;  // Linked list of active ships
 int nextShipId = 1;                // Unique ID counter for ships
 long long simTimeMinutes = 0;      // Current simulation time in absolute minutes since epoch
 bool simPaused = false;            // Simulation auto-starts on launch (requirement)
-int simSpeed = SIM_SPEED_1X;       // Simulation speed in minutes per real-time second (60 = 1x speed = 1 hour/second)
+int simSpeed = 60;                 // Simulation speed in minutes per real-time second (60 = 1x speed = 1 hour/second)
 sf::Clock simClock;                // Clock for tracking real time
 float simAccumulator = 0.0f;       // Accumulator for fractional minutes
 sf::Clock globalAnimClock;         // Global animation clock for logging
@@ -2294,8 +2295,13 @@ void runGraphics() {
         
         // Draw active ships in transit
         Ship* ship = activeShipsHead;
+        int travelingCount = 0;
+        int waitingCount = 0;
+        int dockedCount = 0;
+        
         while (ship != nullptr) {
             if (ship->state == TRAVELING) {
+                travelingCount++;
                 Route* currentLeg = ship->legs[ship->currentLegIndex];
                 int originIdx = (ship->currentLegIndex == 0) ? ship->originIndex : ship->legs[ship->currentLegIndex - 1]->destinationIndex;
                 int destIdx = currentLeg->destinationIndex;
@@ -2307,9 +2313,23 @@ void runGraphics() {
                 
                 if (totalTravelTime > 0 && elapsedTime >= 0) {
                     progress = (float)elapsedTime / (float)totalTravelTime;
-                    if (progress > 1.0f) progress = 1.0f;
+                    // Clamp progress to [0.0, 1.0] range for safety
                     if (progress < 0.0f) progress = 0.0f;
+                    if (progress > 1.0f) progress = 1.0f;
                 }
+                
+                #if DEBUG_ROUTE_EVALUATION
+                // Debug: Log ship drawing (throttled to avoid spam)
+                static int debugDrawCounter = 0;
+                if (debugDrawCounter++ % DEBUG_LOG_THROTTLE_FRAMES == 0) {
+                    printf("[SHIP_DRAW] Ship #%d TRAVELING: progress=%.3f, time=%lld/%lld, pos=(%.1f,%.1f), origin=%s(%.1f,%.1f), dest=%s(%.1f,%.1f)\n",
+                           ship->shipId, progress, elapsedTime, totalTravelTime,
+                           ports[originIdx].x + (ports[destIdx].x - ports[originIdx].x) * progress,
+                           ports[originIdx].y + (ports[destIdx].y - ports[originIdx].y) * progress,
+                           ports[originIdx].name, ports[originIdx].x, ports[originIdx].y,
+                           ports[destIdx].name, ports[destIdx].x, ports[destIdx].y);
+                }
+                #endif
                 
                 // Interpolate position
                 float shipX = ports[originIdx].x + (ports[destIdx].x - ports[originIdx].x) * progress;
@@ -2324,6 +2344,9 @@ void runGraphics() {
                 shipShape.setPosition(shipX, shipY);
                 window.draw(shipShape);
             } else if (ship->state == WAITING_QUEUE || ship->state == DOCKED) {
+                if (ship->state == WAITING_QUEUE) waitingCount++;
+                if (ship->state == DOCKED) dockedCount++;
+                
                 // Draw ship waiting at port (near the port icon)
                 // Ships in queue appear slightly farther out than docked ships
                 float baseRadius = (ship->state == DOCKED) ? 20.0f : 30.0f;
@@ -2343,6 +2366,15 @@ void runGraphics() {
             }
             ship = ship->next;
         }
+        
+        #if DEBUG_ROUTE_EVALUATION
+        // Debug: Log ship state counts (throttled to avoid spam)
+        static int debugStateCounter = 0;
+        if (debugStateCounter++ % DEBUG_LOG_THROTTLE_FRAMES == 0 && (travelingCount > 0 || waitingCount > 0 || dockedCount > 0)) {
+            printf("[SHIP_STATES] TRAVELING=%d, WAITING=%d, DOCKED=%d (total=%d)\n",
+                   travelingCount, waitingCount, dockedCount, travelingCount + waitingCount + dockedCount);
+        }
+        #endif
 
         for(int i=0; i<totalPorts; i++) {
             bool isHovering = false;
