@@ -105,6 +105,7 @@ const float GLOW_OFFSET = 2.0f;
 const int MAX_QUEUE_SHIPS_DISPLAY = 3; // Maximum number of animated ships to show in queue visualization
 const int DEFAULT_DOCK_SLOTS = 1;      // Default number of docking slots per port (reduced to surface contention)
 const int MAX_PORTS = 100;             // Maximum number of ports supported
+const float SIM_SPEED_TO_MULTIPLIER = 60.0f; // Conversion factor: simSpeed (minutes/second) to speed multiplier (1x, 2x, etc.)
 
 // Demo queue data constants (used when ENABLE_DEMO_QUEUE_DATA is enabled)
 const int DEMO_QUEUE_COUNT = 2;        // Number of ships waiting in Singapore demo queue
@@ -134,11 +135,12 @@ bool showingDijkstra = false;
 // ==========================================
 Ship* activeShipsHead = nullptr;  // Linked list of active ships
 int nextShipId = 1;                // Unique ID counter for ships
-long long simTimeMinutes = 0;      // Current simulation time in absolute minutes
-bool simPaused = true;             // Simulation starts paused
-int simSpeed = SIM_SPEED_1X;       // Default speed: 1x (real-time simulation)
+long long simTimeMinutes = 0;      // Current simulation time in absolute minutes since epoch
+bool simPaused = false;            // Simulation auto-starts on launch (requirement)
+int simSpeed = SIM_SPEED_1X;       // Simulation speed in minutes per real-time second (60 = 1x speed = 1 hour/second)
 sf::Clock simClock;                // Clock for tracking real time
 float simAccumulator = 0.0f;       // Accumulator for fractional minutes
+sf::Clock globalAnimClock;         // Global animation clock for logging
 
 // ==========================================
 // Ship Simulation State
@@ -216,12 +218,12 @@ struct TimeSimulation {
     
     // Constructor with valid defaults
     TimeSimulation() {
-        day = 1;      // Default to 1, not 0
-        month = 1;    // Default to 1, not 0
-        year = 2024;
+        day = SIM_BASE_DAY;      // Start at base date (20/12/2024)
+        month = SIM_BASE_MONTH;
+        year = SIM_BASE_YEAR;
         hour = 0;
         minute = 0;
-        isPaused = true;
+        isPaused = false; // Auto-start simulation on launch
     }
 };
 
@@ -296,14 +298,14 @@ bool portHasPreferredCompanyRoute(int portIndex) {
 // ==========================================
 // Ship Logs & Simulation Functions
 // ==========================================
-void addShipLog(const char* message, bool isOurShip, sf::Clock& animClock) {
+void addShipLog(const char* message, bool isOurShip) {
     int index = (logStartIndex + logCount) % 20;
     if (logCount < 20) logCount++;
     else logStartIndex = (logStartIndex + 1) % 20;
     
     strcpy(shipLogs[index].message, message);
     shipLogs[index].color = isOurShip ? sf::Color::Green : sf::Color(255, 165, 0); // Green for our ship, Orange for others
-    shipLogs[index].timestamp = animClock.getElapsedTime().asSeconds();
+    shipLogs[index].timestamp = globalAnimClock.getElapsedTime().asSeconds();
 }
 
 // Days in each month (index 1-12, index 0 unused)
@@ -323,13 +325,13 @@ int getDaysInMonth(int month, int year) {
     return days[month];
 }
 
-// Update time based on ship progress
+// Update time display based on simulation progress
 void updateSimulatedTime(float deltaTime) {
     if (!timeSim.isPaused) {
-        // Advance simulation time (1 real second = 1 simulated hour)
-        // Use floating point to avoid drift
+        // Advance simulation time based on simSpeed
+        // simSpeed is in minutes per real-time second (e.g., 60 = 1x speed = 1 hour per real second)
         static float fractionalMinutes = 0.0f;
-        fractionalMinutes += deltaTime * 60.0f * shipSim.simulationSpeed;
+        fractionalMinutes += deltaTime * simSpeed;
         
         int wholeMinutes = (int)fractionalMinutes;
         fractionalMinutes -= wholeMinutes;
@@ -373,7 +375,7 @@ float getAngle(float x1, float y1, float x2, float y2) {
 }
 
 // Spawn random other ships
-void spawnOtherShip(int portIndex, sf::Clock& animClock) {
+void spawnOtherShip(int portIndex) {
     if (otherShipCount >= 20) return;
     if (portIndex < 0 || portIndex >= totalPorts) return; // Bounds check
     
@@ -397,11 +399,11 @@ void spawnOtherShip(int portIndex, sf::Clock& animClock) {
     // Log arrival
     char msg[100];
     snprintf(msg, sizeof(msg), "Ship %s-%d arriving at %s", ship.company, ship.shipNumber, ports[portIndex].name);
-    addShipLog(msg, false, animClock);
+    addShipLog(msg, false);
 }
 
 // Update other ships
-void updateOtherShips(float deltaTime, sf::Clock& animClock) {
+void updateOtherShips(float deltaTime) {
     for (int i = 0; i < otherShipCount; i++) {
         OtherShip& ship = otherShips[i];
         if (!ship.active) continue;
@@ -415,7 +417,7 @@ void updateOtherShips(float deltaTime, sf::Clock& animClock) {
                     ship.stateTimer = 0;
                     char msg[100];
                     snprintf(msg, sizeof(msg), "Ship %s-%d docked at %s", ship.company, ship.shipNumber, ports[ship.portIndex].name);
-                    addShipLog(msg, false, animClock);
+                    addShipLog(msg, false);
                 }
                 break;
                 
@@ -429,7 +431,7 @@ void updateOtherShips(float deltaTime, sf::Clock& animClock) {
                     }
                     char msg[100];
                     snprintf(msg, sizeof(msg), "Ship %s-%d departing from %s", ship.company, ship.shipNumber, ports[ship.portIndex].name);
-                    addShipLog(msg, false, animClock);
+                    addShipLog(msg, false);
                 }
                 break;
                 
@@ -1280,6 +1282,12 @@ void spawnShip(Journey& journey) {
     shipArrival(ports[ship->originIndex]);
     ship->state = WAITING_QUEUE;
     
+    // Log ship booking/spawn
+    char logMsg[200];
+    snprintf(logMsg, sizeof(logMsg), "[BOOK] Ship #%d booked: %s -> %s (%d legs)", 
+             ship->shipId, ports[ship->originIndex].name, ports[ship->destinationIndex].name, ship->legCount);
+    addShipLog(logMsg, true);
+    
     addShipToActiveList(ship);
 }
 
@@ -1329,9 +1337,19 @@ void processSimulationTick() {
                     int destPortIdx = curr->legs[curr->currentLegIndex]->destinationIndex;
                     curr->currentPortIndex = destPortIdx;
                     
+                    // Log arrival at port
+                    char arrivalMsg[200];
+                    snprintf(arrivalMsg, sizeof(arrivalMsg), "[ARRIVE] Ship #%d arrived at %s", 
+                             curr->shipId, ports[destPortIdx].name);
+                    addShipLog(arrivalMsg, true);
+                    
                     // Check if this is the final destination
                     if (curr->currentLegIndex >= curr->legCount - 1) {
                         // Reached final destination
+                        char completeMsg[200];
+                        snprintf(completeMsg, sizeof(completeMsg), "[COMPLETE] Ship #%d completed journey at %s", 
+                                 curr->shipId, ports[destPortIdx].name);
+                        addShipLog(completeMsg, true);
                         curr->state = COMPLETED;
                         removeShip = true;
                     } else {
@@ -1343,6 +1361,13 @@ void processSimulationTick() {
                         // Ship arrives at port and joins queue
                         shipArrival(ports[destPortIdx]);
                         curr->state = WAITING_QUEUE;
+                        
+                        // Log queue join
+                        char queueMsg[200];
+                        snprintf(queueMsg, sizeof(queueMsg), "[QUEUE] Ship #%d waiting at %s (Q:%d, Wait:%dmin)", 
+                                 curr->shipId, ports[destPortIdx].name, 
+                                 ports[destPortIdx].queueCount, ports[destPortIdx].estWaitMinutes);
+                        addShipLog(queueMsg, true);
                     }
                 }
                 break;
@@ -1359,6 +1384,12 @@ void processSimulationTick() {
                     // Dock slot available - start service
                     startService(ports[curr->currentPortIndex]);
                     curr->state = DOCKED;
+                    
+                    // Log docking
+                    char dockMsg[200];
+                    snprintf(dockMsg, sizeof(dockMsg), "[DOCK] Ship #%d docked at %s (waiting for departure time)", 
+                             curr->shipId, ports[curr->currentPortIndex].name);
+                    addShipLog(dockMsg, true);
                 }
                 // Ship stays in WAITING_QUEUE until dock opens
                 break;
@@ -1379,6 +1410,13 @@ void processSimulationTick() {
                     if (departingLeg->arrivalTime.hour < departingLeg->departureTime.hour) {
                         curr->arrivalTimeMin += 1440;
                     }
+                    
+                    // Log departure
+                    char departMsg[200];
+                    snprintf(departMsg, sizeof(departMsg), "[DEPART] Ship #%d departed from %s to %s", 
+                             curr->shipId, ports[curr->currentPortIndex].name, 
+                             ports[departingLeg->destinationIndex].name);
+                    addShipLog(departMsg, true);
                     
                     curr->state = TRAVELING;
                 }
@@ -1410,8 +1448,8 @@ void processSimulationTick() {
 void updateSimulationClock(float deltaTime) {
     if (simPaused) return;
     
-    // deltaTime is in seconds, simSpeed is the speed multiplier
-    // At 60x speed: 1 real second = 60 sim minutes
+    // deltaTime is in seconds, simSpeed is in minutes per real-time second
+    // At 60x speed (1x multiplier): 1 real second = 60 sim minutes = 1 sim hour
     // simSpeed directly represents simulation minutes per real-time second
     simAccumulator += deltaTime * simSpeed;
     
@@ -1431,7 +1469,7 @@ void bookRouteAndSpawnShip(int routeIndex) {
 // ==========================================
 // Ship Simulation Update Function
 // ==========================================
-void updateShipSimulation(float deltaTime, sf::Clock& animClock) {
+void updateShipSimulation(float deltaTime) {
     if (!shipSim.isRunning || foundJourneysCount == 0) return;
     
     Journey& journey = foundJourneys[shipSim.selectedJourneyIndex];
@@ -1448,7 +1486,7 @@ void updateShipSimulation(float deltaTime, sf::Clock& animClock) {
             const char* companies[] = {"MSC", "Maersk", "CMA-CGM", "Evergreen"};
             snprintf(msg, sizeof(msg), "Ship %s-%d arrived at %s", 
                     companies[rand() % 4], rand() % 1000, shipSim.currentPortName);
-            addShipLog(msg, false, animClock);
+            addShipLog(msg, false);
         }
         
         if (shipSim.timeAtPort >= shipSim.departureDelay) {
@@ -1462,7 +1500,7 @@ void updateShipSimulation(float deltaTime, sf::Clock& animClock) {
                 char msg[200];
                 snprintf(msg, sizeof(msg), "[>>] Departing from %s to %s", 
                         shipSim.currentPortName, shipSim.nextPortName);
-                addShipLog(msg, true, animClock);
+                addShipLog(msg, true);
             }
         }
     }
@@ -1478,10 +1516,10 @@ void updateShipSimulation(float deltaTime, sf::Clock& animClock) {
             
             char msg[200];
             snprintf(msg, sizeof(msg), "[OK] Arrived at %s", shipSim.currentPortName);
-            addShipLog(msg, true, animClock);
+            addShipLog(msg, true);
             
             if (shipSim.currentLegIndex >= journey.legCount) {
-                addShipLog("[!!] Journey Complete!", true, animClock);
+                addShipLog("[!!] Journey Complete!", true);
                 shipSim.isRunning = false;
             }
         } else {
@@ -1865,9 +1903,9 @@ void runGraphics() {
                     }
                     
                     // Synchronize with simSpeed (used by ship state machine)
-                    // simSpeed represents simulation minutes per real-time second
+                    // simSpeed is in minutes per real-time second
                     // Convert from speed multiplier to minutes per second: 1x = 60 min/sec
-                    simSpeed = (int)(shipSim.simulationSpeed * 60.0f);
+                    simSpeed = (int)(shipSim.simulationSpeed * SIM_SPEED_TO_MULTIPLIER);
                     
                     // Update button label with proper formatting
                     char speedLabel[SPEED_LABEL_BUFFER_SIZE];
@@ -1924,15 +1962,15 @@ void runGraphics() {
                     Date baseDate = {SIM_BASE_DAY, SIM_BASE_MONTH, SIM_BASE_YEAR};
                     Time baseTime = {0, 0};
                     simTimeMinutes = getMinutes(baseDate, baseTime);
-                    simPaused = true;
+                    simPaused = false;  // Keep auto-start behavior
                     
-                    // Reset TimeSimulation to default values
-                    timeSim.day = 1;
-                    timeSim.month = 1;
-                    timeSim.year = 2024;
+                    // Reset TimeSimulation to base date
+                    timeSim.day = SIM_BASE_DAY;
+                    timeSim.month = SIM_BASE_MONTH;
+                    timeSim.year = SIM_BASE_YEAR;
                     timeSim.hour = 0;
                     timeSim.minute = 0;
-                    timeSim.isPaused = true;
+                    timeSim.isPaused = false;  // Keep auto-start behavior
                     
                     strcpy(statusMessage, "Ready."); strcpy(pathDetails, ""); strcpy(inputDateString, "20/12/2024");
                     txtStart.setString("From: None"); txtEnd.setString("To:   None");
@@ -1965,9 +2003,9 @@ void runGraphics() {
         updateSimulationClock(deltaTime);
         
         // Update ship simulation
-        updateShipSimulation(deltaTime, animClock);
+        updateShipSimulation(deltaTime);
         updateSimulatedTime(deltaTime);
-        updateOtherShips(deltaTime, animClock);
+        updateOtherShips(deltaTime);
         
         // Count active ships (for old system)
         int activeShipCount = 0;
@@ -1986,7 +2024,7 @@ void runGraphics() {
         window.draw(sMap);
 
         bool hoverFound = false;
-        float time = animClock.getElapsedTime().asSeconds();
+        float time = globalAnimClock.getElapsedTime().asSeconds();
 
         bool* portInRoute = new bool[totalPorts];
         for(int i=0; i<totalPorts; i++) portInRoute[i] = false;
@@ -2332,10 +2370,11 @@ void runGraphics() {
             
             // Pause/speed indicator below time
             char statusStr[40];
+            float speedMultiplier = simSpeed / SIM_SPEED_TO_MULTIPLIER;  // Convert from minutes/second to multiplier (1x, 2x, etc.)
             if (simPaused) {
-                snprintf(statusStr, sizeof(statusStr), "PAUSED | Speed: %.1fx", shipSim.simulationSpeed);
+                snprintf(statusStr, sizeof(statusStr), "PAUSED | Speed: %.1fx", speedMultiplier);
             } else {
-                snprintf(statusStr, sizeof(statusStr), "RUNNING | Speed: %.1fx", shipSim.simulationSpeed);
+                snprintf(statusStr, sizeof(statusStr), "RUNNING | Speed: %.1fx", speedMultiplier);
             }
             sf::Text statusText(statusStr, font, 12);
             statusText.setFillColor(simPaused ? sf::Color(255, 150, 150) : sf::Color(150, 255, 150));
