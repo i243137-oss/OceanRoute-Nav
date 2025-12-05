@@ -37,9 +37,7 @@ SFML_LIBS=$(pkg-config --libs sfml-graphics sfml-window sfml-system 2>/dev/null 
 # Build
 echo ""
 echo "🔨 Building OceanRoute Nav..."
-g++ -std=c++11 src/main.cpp -o OceanRouteNav $SFML_CFLAGS $SFML_LIBS
-
-if [ $? -eq 0 ]; then
+if g++ -std=c++11 src/main.cpp -o OceanRouteNav $SFML_CFLAGS $SFML_LIBS; then
     echo ""
     echo "✅ Build successful!"
     echo ""
