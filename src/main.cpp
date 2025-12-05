@@ -3,10 +3,16 @@
 #include <cstring>
 #include <iomanip>
 #include <cmath>
+#include <climits>
 #include <SFML/Graphics.hpp> 
 #include "DataStructures.h" 
 
 using namespace std;
+
+// Cross-platform case-insensitive string comparison
+#ifdef _WIN32
+    #define strcasecmp _stricmp
+#endif
 
 // ==========================================
 // 0. Preference System Structures
@@ -109,7 +115,7 @@ sf::Color COL_INPUT_FOCUS(200, 230, 255);
 bool isPortAvoided(int portIndex) {
     if (!userPrefs.usePreferences) return false;
     for (int i = 0; i < userPrefs.avoidedPortCount; i++) {
-        if (strcmp(userPrefs.avoidedPorts[i], ports[portIndex].name) == 0) {
+        if (strcasecmp(userPrefs.avoidedPorts[i], ports[portIndex].name) == 0) {
             return true;
         }
     }
@@ -119,7 +125,7 @@ bool isPortAvoided(int portIndex) {
 bool isCompanyPreferred(const char* company) {
     if (!userPrefs.usePreferences || userPrefs.preferredCompanyCount == 0) return true;
     for (int i = 0; i < userPrefs.preferredCompanyCount; i++) {
-        if (strcmp(userPrefs.preferredCompanies[i], company) == 0) {
+        if (strcasecmp(userPrefs.preferredCompanies[i], company) == 0) {
             return true;
         }
     }
@@ -857,6 +863,18 @@ void runGraphics() {
                         if (strlen(tempAvoidPort) > 0) {
                             strcpy(userPrefs.avoidedPorts[0], tempAvoidPort);
                             userPrefs.avoidedPortCount = 1;
+                        }
+                        
+                        // Debug output
+                        printf("DEBUG: Preferences Applied\n");
+                        printf("DEBUG: usePreferences = %s\n", userPrefs.usePreferences ? "true" : "false");
+                        printf("DEBUG: avoidedPortCount = %d\n", userPrefs.avoidedPortCount);
+                        if (userPrefs.avoidedPortCount > 0) {
+                            printf("DEBUG: avoidedPorts[0] = '%s'\n", userPrefs.avoidedPorts[0]);
+                        }
+                        printf("DEBUG: preferredCompanyCount = %d\n", userPrefs.preferredCompanyCount);
+                        if (userPrefs.preferredCompanyCount > 0) {
+                            printf("DEBUG: preferredCompanies[0] = '%s'\n", userPrefs.preferredCompanies[0]);
                         }
                         
                         strcpy(statusMessage, "Filters applied!");
