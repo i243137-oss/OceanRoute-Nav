@@ -130,6 +130,11 @@ bool showRouteSelectionPanel = false;
 int selectedRouteIndex = -1;
 int confirmedRouteIndex = -1;  // Route that was booked
 
+// Route Selection Panel Pagination
+int routePageIndex = 0;           // Current page (0-indexed)
+int routesPerPage = 3;            // Number of routes to show per page
+int totalRoutePages = 1;          // Total number of pages
+
 // Algorithm visualization tracking
 bool* exploredPorts = nullptr;
 bool* finalPathPorts = nullptr;
@@ -1814,6 +1819,8 @@ void runGraphics() {
     Button btnSelectRoute[10];  // Up to 10 route selection buttons
     Button btnBookSelected;     // "Book Selected Route" button
     Button btnCancelRoutePanel; // Close/Cancel button
+    Button btnPrevPage;         // "◄ PREV" button for pagination
+    Button btnNextPage;         // "NEXT ►" button for pagination
     sf::Text txtRouteInfo[10];  // Route information display
     
     // Initialize route selection panel components
@@ -2008,11 +2015,24 @@ void runGraphics() {
                 
                 // Handle Route Selection Panel clicks
                 if (showRouteSelectionPanel) {
+                    // Check if clicking pagination buttons
+                    if (btnPrevPage.isClicked(pos) && routePageIndex > 0) {
+                        routePageIndex--;
+                    }
+                    
+                    if (btnNextPage.isClicked(pos) && routePageIndex < totalRoutePages - 1) {
+                        routePageIndex++;
+                    }
+                    
                     // Check if clicking route selection buttons
                     bool clickedRouteButton = false;
-                    for (int i = 0; i < foundJourneysCount && i < 10; i++) {
-                        if (btnSelectRoute[i].isClicked(pos)) {
-                            selectedRouteIndex = i;
+                    int startIndex = routePageIndex * routesPerPage;
+                    int endIndex = minInt(startIndex + routesPerPage, foundJourneysCount);
+                    
+                    for (int i = startIndex; i < endIndex && i < 10; i++) {
+                        int displayIndex = i - startIndex;
+                        if (btnSelectRoute[displayIndex].isClicked(pos)) {
+                            selectedRouteIndex = i;  // Store actual index in foundJourneys
                             clickedRouteButton = true;
                             break;
                         }
@@ -2132,6 +2152,11 @@ void runGraphics() {
                         showRouteSelectionPanel = true;
                         selectedRouteIndex = -1;  // Reset selection
                         confirmedRouteIndex = -1;  // Reset confirmed route
+                        
+                        // Calculate pagination
+                        routePageIndex = 0;  // Reset to first page
+                        totalRoutePages = (foundJourneysCount + routesPerPage - 1) / routesPerPage;  // Ceiling division
+                        
                         strcpy(statusMessage, "Select a route to book");
                     } else {
                         strcpy(statusMessage, "No routes found");
@@ -2254,11 +2279,17 @@ void runGraphics() {
         
         // Update route selection panel buttons if panel is visible
         if (showRouteSelectionPanel) {
-            for (int i = 0; i < foundJourneysCount && i < 10; i++) {
-                btnSelectRoute[i].update(mPos, mousePressed);
+            int startIndex = routePageIndex * routesPerPage;
+            int endIndex = minInt(startIndex + routesPerPage, foundJourneysCount);
+            
+            for (int i = startIndex; i < endIndex && i < 10; i++) {
+                int displayIndex = i - startIndex;
+                btnSelectRoute[displayIndex].update(mPos, mousePressed);
             }
             btnBookSelected.update(mPos, mousePressed);
             btnCancelRoutePanel.update(mPos, mousePressed);
+            btnPrevPage.update(mPos, mousePressed);
+            btnNextPage.update(mPos, mousePressed);
         }
         
         dateInput.update(inputDateString, isTypingDate);
@@ -2812,7 +2843,11 @@ void runGraphics() {
             routePanel.setPosition(panelX, panelY);
             window.draw(routePanel);
             
-            // Panel title
+            // Panel title with page indicator
+            char pageTitle[64];
+            snprintf(pageTitle, sizeof(pageTitle), "SELECT A ROUTE (Page %d/%d)", 
+                     routePageIndex + 1, totalRoutePages);
+            txtRoutePanelTitle.setString(pageTitle);
             txtRoutePanelTitle.setPosition(panelX + 20, panelY + 15);
             window.draw(txtRoutePanelTitle);
             
@@ -2821,14 +2856,16 @@ void runGraphics() {
             window.draw(txtRoutePanelClose);
             btnCancelRoutePanel.init(panelX + panelWidth - 35, panelY + 12, 25, 25, "", font);
             
-            // Display route information for each found journey (max 3 visible at once to accommodate multi-leg routes)
+            // Display route information for current page
             float routeY = panelY + 55;
-            int maxVisibleRoutes = 3;  // Reduced from 5 to accommodate larger multi-leg route boxes
-            int displayCount = (foundJourneysCount < maxVisibleRoutes) ? foundJourneysCount : maxVisibleRoutes;
+            int startIndex = routePageIndex * routesPerPage;
+            int endIndex = minInt(startIndex + routesPerPage, foundJourneysCount);
             
-            for (int i = 0; i < displayCount && i < 10; i++) {
+            for (int i = startIndex; i < endIndex && i < 10; i++) {
                 Journey& journey = foundJourneys[i];
                 if (journey.legCount == 0) continue;
+                
+                int displayIndex = i - startIndex;  // 0, 1, 2 for display positioning
                 
                 // Calculate route box height based on number of legs
                 // Direct routes: 85px, Multi-leg routes: 95px + (legCount * 35px)
@@ -2911,17 +2948,42 @@ void runGraphics() {
                 }
                 
                 // Display route info text
-                txtRouteInfo[i].setString(routeInfo);
-                txtRouteInfo[i].setPosition(panelX + 30, routeY + 8);
-                txtRouteInfo[i].setCharacterSize(10);
-                window.draw(txtRouteInfo[i]);
+                txtRouteInfo[displayIndex].setString(routeInfo);
+                txtRouteInfo[displayIndex].setPosition(panelX + 30, routeY + 8);
+                txtRouteInfo[displayIndex].setCharacterSize(10);
+                window.draw(txtRouteInfo[displayIndex]);
                 
                 // Select button
-                btnSelectRoute[i].init(panelX + panelWidth - 100, routeY + routeBoxHeight - 30, 80, 25, "SELECT", font);
-                btnSelectRoute[i].draw(window);
+                btnSelectRoute[displayIndex].init(panelX + panelWidth - 100, routeY + routeBoxHeight - 30, 80, 25, "SELECT", font);
+                btnSelectRoute[displayIndex].draw(window);
                 
                 routeY += routeBoxHeight + 10;
             }
+            
+            // Pagination buttons - positioned above "Book Selected Route" button
+            float paginationY = panelY + panelHeight - 100;
+            
+            // Previous button
+            btnPrevPage.init(panelX + 60, paginationY, 110, 30, "< PREV", font);
+            
+            // Set button color based on state
+            if (routePageIndex == 0) {
+                btnPrevPage.shape.setFillColor(COL_BTN_DISABLED);
+            } else {
+                btnPrevPage.shape.setFillColor(COL_BTN_IDLE);
+            }
+            btnPrevPage.draw(window);
+            
+            // Next button
+            btnNextPage.init(panelX + panelWidth - 170, paginationY, 110, 30, "NEXT >", font);
+            
+            // Set button color based on state
+            if (routePageIndex >= totalRoutePages - 1) {
+                btnNextPage.shape.setFillColor(COL_BTN_DISABLED);
+            } else {
+                btnNextPage.shape.setFillColor(COL_BTN_IDLE);
+            }
+            btnNextPage.draw(window);
             
             // "Book Selected Route" button at bottom
             btnBookSelected.init(panelX + (panelWidth - 200) / 2, panelY + panelHeight - 50, 200, 35, "Book Selected Route", font);
