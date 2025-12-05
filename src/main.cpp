@@ -142,6 +142,18 @@ bool meetsTimeLimit(long long departureTime, long long arrivalTime) {
     return voyageTime <= userPrefs.maxVoyageTimeMinutes;
 }
 
+bool portHasPreferredCompanyRoute(int portIndex) {
+    if (!userPrefs.usePreferences || userPrefs.preferredCompanyCount == 0) return false;
+    Route* r = ports[portIndex].headRoute;
+    while (r != nullptr) {
+        if (isCompanyPreferred(r->company)) {
+            return true;
+        }
+        r = r->next;
+    }
+    return false;
+}
+
 struct Journey {
     Route* legs[10];
     int legCount;
@@ -807,8 +819,8 @@ void runGraphics() {
     sf::Text txtStatus(statusMessage, font, 14); txtStatus.setPosition(20, 440); txtStatus.setFillColor(sf::Color::Yellow);
     sf::Text txtDetails(pathDetails, font, 12); txtDetails.setPosition(20, 470); txtDetails.setFillColor(sf::Color::Cyan);
     sf::Text txtPrefTitle("Filter Preferences", font, 12); txtPrefTitle.setPosition(20, 495); txtPrefTitle.setFillColor(sf::Color::Cyan);
-    sf::Text txtCompanyLabel("Company (e.g. Maersk):", font, 10); txtCompanyLabel.setPosition(20, 505); txtCompanyLabel.setFillColor(sf::Color::White);
-    sf::Text txtAvoidLabel("Avoid Port:", font, 10); txtAvoidLabel.setPosition(20, 555); txtAvoidLabel.setFillColor(sf::Color::White);
+    sf::Text txtCompanyLabel("Company (comma-separated):", font, 10); txtCompanyLabel.setPosition(20, 505); txtCompanyLabel.setFillColor(sf::Color::White);
+    sf::Text txtAvoidLabel("Avoid Ports (comma-separated):", font, 10); txtAvoidLabel.setPosition(20, 555); txtAvoidLabel.setFillColor(sf::Color::White);
     
     sf::RectangleShape tooltipBox(sf::Vector2f(320, 140));
     tooltipBox.setFillColor(sf::Color(0, 0, 0, 220));
@@ -892,26 +904,54 @@ void runGraphics() {
                     if (strlen(tempCompany) > 0 || strlen(tempAvoidPort) > 0) {
                         userPrefs.usePreferences = true;
                         
+                        // Parse comma-separated companies
                         if (strlen(tempCompany) > 0) {
-                            strcpy(userPrefs.preferredCompanies[0], tempCompany);
-                            userPrefs.preferredCompanyCount = 1;
+                            char tempCopy[200];
+                            strcpy(tempCopy, tempCompany);
+                            char* token = strtok(tempCopy, ",");
+                            while (token != nullptr && userPrefs.preferredCompanyCount < 5) {
+                                // Trim leading/trailing spaces
+                                while (*token == ' ') token++;
+                                char* end = token + strlen(token) - 1;
+                                while (end > token && *end == ' ') { *end = '\0'; end--; }
+                                
+                                if (strlen(token) > 0) {
+                                    strcpy(userPrefs.preferredCompanies[userPrefs.preferredCompanyCount], token);
+                                    userPrefs.preferredCompanyCount++;
+                                }
+                                token = strtok(nullptr, ",");
+                            }
                         }
                         
+                        // Parse comma-separated avoided ports
                         if (strlen(tempAvoidPort) > 0) {
-                            strcpy(userPrefs.avoidedPorts[0], tempAvoidPort);
-                            userPrefs.avoidedPortCount = 1;
+                            char tempCopy[200];
+                            strcpy(tempCopy, tempAvoidPort);
+                            char* token = strtok(tempCopy, ",");
+                            while (token != nullptr && userPrefs.avoidedPortCount < 10) {
+                                // Trim leading/trailing spaces
+                                while (*token == ' ') token++;
+                                char* end = token + strlen(token) - 1;
+                                while (end > token && *end == ' ') { *end = '\0'; end--; }
+                                
+                                if (strlen(token) > 0) {
+                                    strcpy(userPrefs.avoidedPorts[userPrefs.avoidedPortCount], token);
+                                    userPrefs.avoidedPortCount++;
+                                }
+                                token = strtok(nullptr, ",");
+                            }
                         }
                         
                         // Debug output
                         printf("DEBUG: Preferences Applied\n");
                         printf("DEBUG: usePreferences = %s\n", userPrefs.usePreferences ? "true" : "false");
                         printf("DEBUG: avoidedPortCount = %d\n", userPrefs.avoidedPortCount);
-                        if (userPrefs.avoidedPortCount > 0) {
-                            printf("DEBUG: avoidedPorts[0] = '%s'\n", userPrefs.avoidedPorts[0]);
+                        for (int i = 0; i < userPrefs.avoidedPortCount; i++) {
+                            printf("DEBUG: avoidedPorts[%d] = '%s'\n", i, userPrefs.avoidedPorts[i]);
                         }
                         printf("DEBUG: preferredCompanyCount = %d\n", userPrefs.preferredCompanyCount);
-                        if (userPrefs.preferredCompanyCount > 0) {
-                            printf("DEBUG: preferredCompanies[0] = '%s'\n", userPrefs.preferredCompanies[0]);
+                        for (int i = 0; i < userPrefs.preferredCompanyCount; i++) {
+                            printf("DEBUG: preferredCompanies[%d] = '%s'\n", i, userPrefs.preferredCompanies[i]);
                         }
                         
                         strcpy(statusMessage, "Filters applied!");
@@ -983,6 +1023,13 @@ void runGraphics() {
                 } else {
                     pathColor = j.isDirect ? sf::Color(255, 215, 0, 220) : sf::Color(0, 255, 0, 180);
                 }
+                
+                // Add pulsing animation for filtered routes
+                if (userPrefs.usePreferences && showJourneys) {
+                    float pulseAlpha = (sin(time * 4.0f) + 1.0f) / 2.0f; // 0 to 1
+                    int alpha = 150 + (int)(pulseAlpha * 105); // 150 to 255
+                    pathColor.a = alpha;
+                }
 
                 for(int k=0; k<j.legCount; k++) {
                     Route* r = j.legs[k];
@@ -1001,6 +1048,20 @@ void runGraphics() {
                             legColor.a = 150;
                         } else {
                             legColor.a = 50;
+                        }
+                        
+                        // Draw glow effect for filtered routes
+                        if (userPrefs.usePreferences) {
+                            sf::Color glowColor = sf::Color(255, 200, 0, 100); // Golden glow for filtered routes
+                            
+                            // Draw glow (thicker line effect using multiple offset lines)
+                            for (int offset_val = -2; offset_val <= 2; offset_val++) {
+                                sf::Vertex glowLine[] = {
+                                    sf::Vertex(sf::Vector2f(p1.x + offset_val, p1.y), glowColor),
+                                    sf::Vertex(sf::Vector2f(p2.x + offset_val, p2.y), glowColor)
+                                };
+                                window.draw(glowLine, 2, sf::Lines);
+                            }
                         }
 
                         sf::Vertex line[] = {
@@ -1055,6 +1116,10 @@ void runGraphics() {
                 if (i==selectedStart) { p.setColor(sf::Color::Green); s*=1.3f; }
                 else if (i==selectedEnd) { p.setColor(sf::Color::Red); s*=1.3f; }
                 else if (isPortAvoided(i)) { p.setColor(sf::Color(200, 0, 0)); s*=1.1f; }
+                else if (portHasPreferredCompanyRoute(i) && userPrefs.usePreferences) {
+                    p.setColor(sf::Color(255, 215, 0)); // Gold color for ports with preferred company
+                    s*=1.15f;
+                }
                 else if (finalPathPorts[i] && showingDijkstra) { 
                     p.setColor(sf::Color(0, 255, 100));
                     s*=1.25f; 
