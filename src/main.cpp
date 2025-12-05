@@ -857,7 +857,14 @@ const char* getLegOrigin(Journey& journey, int legIndex, int originPortIndex) {
 
 // Truncate string to maxLen, adding "..." if truncated
 // maxLen is the maximum length of content (excluding null terminator)
+// dest buffer must be at least maxLen+1 bytes to hold result + null terminator
 void truncateString(char* dest, const char* src, int maxLen) {
+    // Null pointer checks
+    if (!dest || !src) {
+        if (dest) dest[0] = '\0';
+        return;
+    }
+    
     // Ensure maxLen is at least 4 (3 for "..." + 1 for at least one char)
     if (maxLen < 4) {
         if (maxLen >= 0) {
@@ -867,8 +874,9 @@ void truncateString(char* dest, const char* src, int maxLen) {
     }
     
     int srcLen = strlen(src);
-    // If source fits with room for null terminator
-    if (srcLen < maxLen) {
+    // If source fits within maxLen chars (plus room for null terminator in dest)
+    // Note: srcLen < maxLen means we can copy srcLen chars + null terminator
+    if (srcLen <= maxLen) {
         strcpy(dest, src);
     } else {
         // Need to truncate: copy (maxLen-3) chars + "..." + null
@@ -2965,7 +2973,8 @@ void runGraphics() {
                         char legInfo[200];  // Increased to handle longer port/company names
                         formatLegInfo(journey, legIdx, selectedStart, legInfo, sizeof(legInfo));
                         
-                        // Check if we have space to add this leg info (with room for \n and null terminator)
+                        // Check if we have space to add this leg info
+                        // +3 accounts for: 1 newline before + 1 newline after + 1 null terminator
                         if (strlen(routeInfo) + strlen(legInfo) + 3 <= ROUTE_INFO_BUFFER_SIZE - 1) {
                             strcat(routeInfo, "\n");
                             strcat(routeInfo, legInfo);
