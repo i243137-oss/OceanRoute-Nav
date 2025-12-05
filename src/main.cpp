@@ -271,7 +271,14 @@ void addShipLog(const char* message, bool isOurShip, sf::Clock& animClock) {
 void updateSimulatedTime(float deltaTime) {
     if (shipSim.isRunning && !timeSim.isPaused) {
         // Advance simulation time (1 real second = 1 simulated hour)
-        timeSim.minute += (int)(deltaTime * 60 * shipSim.simulationSpeed);
+        // Use floating point to avoid drift
+        static float fractionalMinutes = 0.0f;
+        fractionalMinutes += deltaTime * 60.0f * shipSim.simulationSpeed;
+        
+        int wholeMinutes = (int)fractionalMinutes;
+        fractionalMinutes -= wholeMinutes;
+        
+        timeSim.minute += wholeMinutes;
         while (timeSim.minute >= 60) {
             timeSim.minute -= 60;
             timeSim.hour++;
@@ -285,7 +292,7 @@ void updateSimulatedTime(float deltaTime) {
 
 // Calculate angle between two points for ship rotation
 float getAngle(float x1, float y1, float x2, float y2) {
-    return atan2(y2 - y1, x2 - x1) * 180.0f / 3.14159f + 90.0f;
+    return atan2(y2 - y1, x2 - x1) * 180.0f / M_PI + 90.0f;
 }
 
 // Draw ship icon with wake effect
@@ -308,8 +315,8 @@ void drawShip(sf::RenderWindow& window, float x, float y, float angle, sf::Color
     // Draw wake effect behind ship
     sf::CircleShape wake(4);
     wake.setFillColor(sf::Color(255, 255, 255, 100));
-    wake.setPosition(x - 15 * cos(angle * 3.14159f / 180.0f), 
-                     y - 15 * sin(angle * 3.14159f / 180.0f));
+    wake.setPosition(x - 15 * cos(angle * M_PI / 180.0f), 
+                     y - 15 * sin(angle * M_PI / 180.0f));
     window.draw(wake);
 }
 
@@ -1204,11 +1211,14 @@ void updateShipSimulation(float deltaTime, sf::Clock& animClock) {
     if (shipSim.status == ShipSimulation::AT_PORT) {
         shipSim.timeAtPort += deltaTime;
         
-        // Generate random other ship events at this port
-        if (rand() % 100 < 2) { // 2% chance per frame
-            char msg[100];
+        // Generate random other ship events at this port (time-based, approximately 1 per second on average)
+        static float eventAccumulator = 0.0f;
+        eventAccumulator += deltaTime;
+        if (eventAccumulator >= 1.0f && (rand() % 100 < 50)) { // 50% chance per second
+            eventAccumulator = 0.0f;
+            char msg[200];
             const char* companies[] = {"MSC", "Maersk", "CMA-CGM", "Evergreen"};
-            sprintf(msg, "Ship %s-%d arrived at %s", 
+            snprintf(msg, sizeof(msg), "Ship %s-%d arrived at %s", 
                     companies[rand() % 4], rand() % 1000, shipSim.currentPortName);
             addShipLog(msg, false, animClock);
         }
@@ -1221,8 +1231,8 @@ void updateShipSimulation(float deltaTime, sf::Clock& animClock) {
                 Route* leg = journey.legs[shipSim.currentLegIndex];
                 strcpy(shipSim.nextPortName, ports[leg->destinationIndex].name);
                 
-                char msg[100];
-                sprintf(msg, "→ Departing from %s to %s", 
+                char msg[200];
+                snprintf(msg, sizeof(msg), "→ Departing from %s to %s", 
                         shipSim.currentPortName, shipSim.nextPortName);
                 addShipLog(msg, true, animClock);
             }
@@ -1238,8 +1248,8 @@ void updateShipSimulation(float deltaTime, sf::Clock& animClock) {
             shipSim.status = ShipSimulation::AT_PORT;
             strcpy(shipSim.currentPortName, shipSim.nextPortName);
             
-            char msg[100];
-            sprintf(msg, "✓ Arrived at %s", shipSim.currentPortName);
+            char msg[200];
+            snprintf(msg, sizeof(msg), "✓ Arrived at %s", shipSim.currentPortName);
             addShipLog(msg, true, animClock);
             
             if (shipSim.currentLegIndex >= journey.legCount) {
@@ -2064,6 +2074,9 @@ void runGraphics() {
 }
 
 int main() {
+    // Seed random number generator for ship events
+    srand((unsigned int)time(NULL));
+    
     loadData();
     initCoordinates();
     
