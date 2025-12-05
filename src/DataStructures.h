@@ -213,7 +213,51 @@ public:
 };
 
 // ==========================================
-// 7. Queue Management Helper Functions
+// 7. Ship State Machine (Simulation)
+// ==========================================
+enum ShipState {
+    TRAVELING,       // Ship is traveling along a route leg
+    WAITING_QUEUE,   // Ship is waiting in port queue for a dock slot
+    DOCKED,          // Ship is docked and being serviced (layover until next departure)
+    COMPLETED,       // Ship has reached final destination
+    CANCELED         // Ship journey was canceled
+};
+
+// Ship structure for real-time simulation
+struct Ship {
+    int shipId;                  // Unique identifier for this ship
+    int originIndex;             // Starting port index
+    int destinationIndex;        // Final destination port index
+    
+    Route* legs[10];             // Array of route legs (matching Journey structure)
+    int legCount;                // Number of legs in journey
+    int currentLegIndex;         // Index of current/next leg being traveled
+    
+    long long departureTimeMin;  // Departure time in absolute minutes (sim time)
+    long long arrivalTimeMin;    // Expected arrival time in absolute minutes (sim time)
+    long long nextDepartureMin;  // Next leg departure time (for waiting at ports)
+    
+    int currentPortIndex;        // Current port location (when waiting/docked)
+    ShipState state;             // Current state in the state machine
+    
+    Ship* next;                  // Linked list pointer for ship management
+};
+
+// ==========================================
+// 8. Simulation Clock
+// ==========================================
+const int SIM_SPEED_1X = 1;
+const int SIM_SPEED_10X = 10;
+const int SIM_SPEED_60X = 60;
+const int SIM_SPEED_120X = 120;
+
+// Base date for simulation (20/12/2024 00:00)
+const int SIM_BASE_DAY = 20;
+const int SIM_BASE_MONTH = 12;
+const int SIM_BASE_YEAR = 2024;
+
+// ==========================================
+// 9. Queue Management Helper Functions
 // ==========================================
 const int DEFAULT_SERVICE_TIME_MINUTES = 240; // 4 hours average service time per ship
 

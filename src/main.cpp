@@ -127,6 +127,17 @@ bool* finalPathPorts = nullptr;
 float explorationProgress = 0.0f;
 bool showingDijkstra = false;
 
+// ==========================================
+// Simulation State
+// ==========================================
+Ship* activeShipsHead = nullptr;  // Linked list of active ships
+int nextShipId = 1;                // Unique ID counter for ships
+long long simTimeMinutes = 0;      // Current simulation time in absolute minutes
+bool simPaused = true;             // Simulation starts paused
+int simSpeed = SIM_SPEED_60X;      // Default speed: 60x (1 day = ~24 real minutes)
+sf::Clock simClock;                // Clock for tracking real time
+float simAccumulator = 0.0f;       // Accumulator for fractional minutes
+
 // Enhanced Color Palette for better visual hierarchy
 sf::Color COL_BG_DARK(30, 30, 35);
 sf::Color COL_ACCENT(0, 180, 255); 
@@ -871,6 +882,202 @@ void findAllAvailableRoutes(int start, int end, Date userDate) {
 }
 
 // ==========================================
+// Simulation Functions
+// ==========================================
+void addShipToActiveList(Ship* ship) {
+    ship->next = activeShipsHead;
+    activeShipsHead = ship;
+}
+
+void removeShipFromActiveList(int shipId) {
+    Ship* prev = nullptr;
+    Ship* curr = activeShipsHead;
+    while (curr != nullptr) {
+        if (curr->shipId == shipId) {
+            if (prev == nullptr) {
+                activeShipsHead = curr->next;
+            } else {
+                prev->next = curr->next;
+            }
+            delete curr;
+            return;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+}
+
+void spawnShip(Journey& journey) {
+    if (journey.legCount == 0) return;
+    
+    Ship* ship = new Ship;
+    ship->shipId = nextShipId++;
+    ship->originIndex = selectedStart;
+    ship->destinationIndex = selectedEnd;
+    
+    // Copy journey legs
+    ship->legCount = journey.legCount;
+    for (int i = 0; i < journey.legCount; i++) {
+        ship->legs[i] = journey.legs[i];
+    }
+    
+    // Initialize ship state
+    ship->currentLegIndex = 0;
+    ship->state = TRAVELING;
+    
+    // Set departure and arrival times for first leg
+    Route* firstLeg = ship->legs[0];
+    ship->departureTimeMin = getMinutes(firstLeg->voyageDate, firstLeg->departureTime);
+    ship->arrivalTimeMin = getMinutes(firstLeg->voyageDate, firstLeg->arrivalTime);
+    
+    // Handle day boundary crossing
+    if (firstLeg->arrivalTime.hour < firstLeg->departureTime.hour) {
+        ship->arrivalTimeMin += 1440; // Add 24 hours
+    }
+    
+    ship->currentPortIndex = ship->originIndex;
+    ship->nextDepartureMin = ship->departureTimeMin;
+    
+    addShipToActiveList(ship);
+}
+
+void formatSimDateTime(long long minutes, char* buffer, int bufferSize) {
+    // Convert absolute minutes to date/time
+    long long totalMinutes = minutes;
+    int year = SIM_BASE_YEAR;
+    int month = SIM_BASE_MONTH;
+    int day = SIM_BASE_DAY;
+    
+    // Add days
+    day += (int)(totalMinutes / 1440);
+    totalMinutes %= 1440;
+    
+    // Handle month overflow (simplified - assume 30 days per month)
+    while (day > 30) {
+        day -= 30;
+        month++;
+        if (month > 12) {
+            month = 1;
+            year++;
+        }
+    }
+    
+    int hour = (int)(totalMinutes / 60);
+    int minute = (int)(totalMinutes % 60);
+    
+    snprintf(buffer, bufferSize, "%02d/%02d/%04d %02d:%02d", day, month, year, hour, minute);
+}
+
+void processSimulationTick() {
+    if (simPaused) return;
+    
+    Ship* curr = activeShipsHead;
+    Ship* prev = nullptr;
+    
+    while (curr != nullptr) {
+        Ship* next = curr->next;
+        bool removeShip = false;
+        
+        switch (curr->state) {
+            case TRAVELING:
+                // Check if ship has arrived
+                if (simTimeMinutes >= curr->arrivalTimeMin) {
+                    // Ship has arrived at destination of current leg
+                    int destPortIdx = curr->legs[curr->currentLegIndex]->destinationIndex;
+                    curr->currentPortIndex = destPortIdx;
+                    
+                    // Check if this is the final destination
+                    if (curr->currentLegIndex >= curr->legCount - 1) {
+                        // Reached final destination
+                        curr->state = COMPLETED;
+                        removeShip = true;
+                    } else {
+                        // More legs to go - join port queue
+                        curr->currentLegIndex++;
+                        Route* nextLeg = curr->legs[curr->currentLegIndex];
+                        curr->nextDepartureMin = getMinutes(nextLeg->voyageDate, nextLeg->departureTime);
+                        
+                        // Add ship to port queue
+                        shipArrival(ports[destPortIdx]);
+                        curr->state = WAITING_QUEUE;
+                    }
+                }
+                break;
+                
+            case WAITING_QUEUE:
+                // Check if it's time to depart and if a dock is available
+                if (simTimeMinutes >= curr->nextDepartureMin) {
+                    if (ports[curr->currentPortIndex].inServiceCount < ports[curr->currentPortIndex].dockSlots) {
+                        // Dock available - start service
+                        startService(ports[curr->currentPortIndex]);
+                        curr->state = DOCKED;
+                    }
+                }
+                break;
+                
+            case DOCKED:
+                // Check if it's time to depart
+                if (simTimeMinutes >= curr->nextDepartureMin) {
+                    // Depart on next leg
+                    Route* nextLeg = curr->legs[curr->currentLegIndex];
+                    curr->departureTimeMin = getMinutes(nextLeg->voyageDate, nextLeg->departureTime);
+                    curr->arrivalTimeMin = getMinutes(nextLeg->voyageDate, nextLeg->arrivalTime);
+                    
+                    // Handle day boundary
+                    if (nextLeg->arrivalTime.hour < nextLeg->departureTime.hour) {
+                        curr->arrivalTimeMin += 1440;
+                    }
+                    
+                    // Free the dock
+                    finishService(ports[curr->currentPortIndex]);
+                    curr->state = TRAVELING;
+                }
+                break;
+                
+            case COMPLETED:
+            case CANCELED:
+                removeShip = true;
+                break;
+        }
+        
+        if (removeShip) {
+            if (prev == nullptr) {
+                activeShipsHead = next;
+                delete curr;
+            } else {
+                prev->next = next;
+                delete curr;
+            }
+            curr = next;
+        } else {
+            prev = curr;
+            curr = next;
+        }
+    }
+}
+
+void updateSimulationClock(float deltaTime) {
+    if (simPaused) return;
+    
+    // deltaTime is in seconds, simSpeed is sim minutes per real second
+    // At 60x speed: 1 real second = 60 sim minutes = 1 sim hour
+    float simMinutesPerSecond = simSpeed / 60.0f;  // Convert to minutes per second
+    simAccumulator += deltaTime * simMinutesPerSecond * 60.0f;
+    
+    // Process whole minutes
+    while (simAccumulator >= 1.0f) {
+        simTimeMinutes++;
+        simAccumulator -= 1.0f;
+        processSimulationTick();
+    }
+}
+
+void bookRouteAndSpawnShip(int routeIndex) {
+    if (routeIndex < 0 || routeIndex >= foundJourneysCount) return;
+    spawnShip(foundJourneys[routeIndex]);
+}
+
+// ==========================================
 // Graphics & Animation
 // ==========================================
 void runGraphics() {
@@ -911,6 +1118,9 @@ void runGraphics() {
     // Section 6: Queue Status Legend
     float section6Y = 670;
     
+    // Section 7: Simulation Controls
+    float section7Y = 780;
+    
     InputBox dateInput; 
     dateInput.init(20, section2Y + 35, 300, 35, font, "DD/MM/YYYY");
     
@@ -929,6 +1139,11 @@ void runGraphics() {
     Button btnPreferences, btnApplyPrefs;
     btnPreferences.init(20, section4Y + 45, 300, 35, "Toggle Filters", font);
     btnApplyPrefs.init(20, section5Y + 145, 300, 30, "Apply Filters", font);
+    
+    // Simulation control buttons
+    Button btnSimPlayPause, btnSimSpeed;
+    btnSimPlayPause.init(20, section7Y + 20, 145, 35, "Play", font);
+    btnSimSpeed.init(175, section7Y + 20, 145, 35, "Speed: 60x", font);
 
     // Section Headers and Labels with improved visual hierarchy
     sf::Text txtSectionPortSelect("PORT SELECTION", font, 12); 
@@ -1021,6 +1236,22 @@ void runGraphics() {
     txtQueueLegend4.setPosition(35, section6Y + 74);
     txtQueueLegend4.setFillColor(COL_TEXT_WHITE);
     
+    // Simulation Section
+    sf::Text txtSectionSim("SIMULATION", font, 12);
+    txtSectionSim.setPosition(20, section7Y);
+    txtSectionSim.setFillColor(COL_SECTION_HEADER);
+    txtSectionSim.setStyle(sf::Text::Bold);
+    
+    char simTimeBuffer[50] = "Time: 20/12/2024 00:00";
+    sf::Text txtSimTime(simTimeBuffer, font, 11);
+    txtSimTime.setPosition(20, section7Y + 65);
+    txtSimTime.setFillColor(COL_TEXT_WHITE);
+    
+    char simShipsBuffer[50] = "Active Ships: 0";
+    sf::Text txtSimShips(simShipsBuffer, font, 10);
+    txtSimShips.setPosition(20, section7Y + 85);
+    txtSimShips.setFillColor(COL_TEXT_MUTED);
+    
     // Separator lines for visual grouping
     sf::RectangleShape separator1(sf::Vector2f(300, 1));
     separator1.setPosition(20, section2Y - 10);
@@ -1041,6 +1272,10 @@ void runGraphics() {
     sf::RectangleShape separator5(sf::Vector2f(300, 1));
     separator5.setPosition(20, section6Y - 10);
     separator5.setFillColor(COL_SEPARATOR);
+    
+    sf::RectangleShape separator6(sf::Vector2f(300, 1));
+    separator6.setPosition(20, section7Y - 10);
+    separator6.setFillColor(COL_SEPARATOR);
     
     sf::RectangleShape tooltipBox(sf::Vector2f(320, 140));
     tooltipBox.setFillColor(sf::Color(0, 0, 0, 220));
@@ -1097,7 +1332,47 @@ void runGraphics() {
 
                 if(btnSearch.isClicked(pos)) runSearch(selectedStart, selectedEnd, parseDate(inputDateString));
                 if(btnDijkstra.isClicked(pos)) runDijkstraSearch(selectedStart, selectedEnd, parseDate(inputDateString));
-                if(btnBook.isClicked(pos)) findAllAvailableRoutes(selectedStart, selectedEnd, parseDate(inputDateString));
+                if(btnBook.isClicked(pos)) {
+                    findAllAvailableRoutes(selectedStart, selectedEnd, parseDate(inputDateString));
+                    // Spawn ships for all found routes
+                    for (int i = 0; i < foundJourneysCount; i++) {
+                        spawnShip(foundJourneys[i]);
+                    }
+                    if (foundJourneysCount > 0) {
+                        char buff[100];
+                        snprintf(buff, sizeof(buff), "Spawned %d ships!", foundJourneysCount);
+                        strcpy(statusMessage, buff);
+                    }
+                }
+                
+                // Simulation control buttons
+                if(btnSimPlayPause.isClicked(pos)) {
+                    simPaused = !simPaused;
+                    if (simPaused) {
+                        btnSimPlayPause.label.setString("Play");
+                    } else {
+                        btnSimPlayPause.label.setString("Pause");
+                        simClock.restart(); // Restart clock on resume
+                    }
+                }
+                
+                if(btnSimSpeed.isClicked(pos)) {
+                    // Cycle through speeds: 1x -> 10x -> 60x -> 120x -> 1x
+                    if (simSpeed == SIM_SPEED_1X) {
+                        simSpeed = SIM_SPEED_10X;
+                        btnSimSpeed.label.setString("Speed: 10x");
+                    } else if (simSpeed == SIM_SPEED_10X) {
+                        simSpeed = SIM_SPEED_60X;
+                        btnSimSpeed.label.setString("Speed: 60x");
+                    } else if (simSpeed == SIM_SPEED_60X) {
+                        simSpeed = SIM_SPEED_120X;
+                        btnSimSpeed.label.setString("Speed: 120x");
+                    } else {
+                        simSpeed = SIM_SPEED_1X;
+                        btnSimSpeed.label.setString("Speed: 1x");
+                    }
+                }
+                
                 if(btnClear.isClicked(pos)) {
                     selectedStart = -1; selectedEnd = -1; showJourneys = false;
                     bookingMode = 0;
@@ -1204,10 +1479,30 @@ void runGraphics() {
         btnClear.update(mPos, mousePressed);
         btnPreferences.update(mPos, mousePressed); 
         btnApplyPrefs.update(mPos, mousePressed);
+        btnSimPlayPause.update(mPos, mousePressed);
+        btnSimSpeed.update(mPos, mousePressed);
         dateInput.update(inputDateString, isTypingDate);
         companyInput.update(tempCompany, focusCompany);
         avoidPortInput.update(tempAvoidPort, focusAvoidPort);
         txtStatus.setString(statusMessage); txtDetails.setString(pathDetails);
+        
+        // Update simulation clock
+        float deltaTime = simClock.restart().asSeconds();
+        updateSimulationClock(deltaTime);
+        
+        // Update simulation UI
+        formatSimDateTime(simTimeMinutes, simTimeBuffer, sizeof(simTimeBuffer));
+        txtSimTime.setString(simTimeBuffer);
+        
+        // Count active ships
+        int activeShipCount = 0;
+        Ship* s = activeShipsHead;
+        while (s != nullptr) {
+            activeShipCount++;
+            s = s->next;
+        }
+        snprintf(simShipsBuffer, sizeof(simShipsBuffer), "Active Ships: %d", activeShipCount);
+        txtSimShips.setString(simShipsBuffer);
         
         if (showingDijkstra && explorationProgress < 1.0f) {
             explorationProgress += 0.02f;
@@ -1342,6 +1637,41 @@ void runGraphics() {
                     }
                 }
             }
+        }
+        
+        // Draw active ships in transit
+        Ship* ship = activeShipsHead;
+        while (ship != nullptr) {
+            if (ship->state == TRAVELING) {
+                Route* currentLeg = ship->legs[ship->currentLegIndex];
+                int originIdx = (ship->currentLegIndex == 0) ? ship->originIndex : ship->legs[ship->currentLegIndex - 1]->destinationIndex;
+                int destIdx = currentLeg->destinationIndex;
+                
+                // Calculate progress along current leg
+                long long totalTravelTime = ship->arrivalTimeMin - ship->departureTimeMin;
+                long long elapsedTime = simTimeMinutes - ship->departureTimeMin;
+                float progress = 0.0f;
+                
+                if (totalTravelTime > 0 && elapsedTime >= 0) {
+                    progress = (float)elapsedTime / (float)totalTravelTime;
+                    if (progress > 1.0f) progress = 1.0f;
+                    if (progress < 0.0f) progress = 0.0f;
+                }
+                
+                // Interpolate position
+                float shipX = ports[originIdx].x + (ports[destIdx].x - ports[originIdx].x) * progress;
+                float shipY = ports[originIdx].y + (ports[destIdx].y - ports[originIdx].y) * progress;
+                
+                // Draw ship as a moving circle
+                sf::CircleShape shipShape(5.0f);
+                shipShape.setFillColor(sf::Color(255, 150, 0, 230));
+                shipShape.setOutlineThickness(2.0f);
+                shipShape.setOutlineColor(sf::Color(255, 255, 255, 200));
+                shipShape.setOrigin(5.0f, 5.0f);
+                shipShape.setPosition(shipX, shipY);
+                window.draw(shipShape);
+            }
+            ship = ship->next;
         }
 
         for(int i=0; i<totalPorts; i++) {
@@ -1519,6 +1849,15 @@ void runGraphics() {
         window.draw(txtQueueLegend3);
         window.draw(queueExampleDot);
         window.draw(txtQueueLegend4);
+        
+        // Section 7: Simulation Controls
+        window.draw(separator6);
+        window.draw(txtSectionSim);
+        btnSimPlayPause.draw(window);
+        btnSimSpeed.draw(window);
+        window.draw(txtSimTime);
+        window.draw(txtSimShips);
+        
         window.display();
     }
 }
