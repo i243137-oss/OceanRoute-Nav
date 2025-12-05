@@ -138,6 +138,56 @@ int simSpeed = SIM_SPEED_60X;      // Default speed: 60x (1 day = ~24 real minut
 sf::Clock simClock;                // Clock for tracking real time
 float simAccumulator = 0.0f;       // Accumulator for fractional minutes
 
+// ==========================================
+// Ship Simulation State
+// ==========================================
+struct ShipSimulation {
+    bool isRunning;
+    int currentLegIndex;
+    float legProgress;      // 0.0 to 1.0 within current leg
+    float simulationSpeed;  // 1.0 = normal, 2.0 = 2x speed
+    int selectedJourneyIndex;
+    
+    // Ship position
+    float shipX, shipY;
+    
+    // Current status
+    enum Status { AT_PORT, DEPARTING, SAILING, ARRIVING } status;
+    char currentPortName[50];
+    char nextPortName[50];
+    
+    // Timing
+    float timeAtPort;       // Time spent at current port
+    float departureDelay;   // 2 seconds at each port
+};
+
+ShipSimulation shipSim = {false, 0, 0.0f, 1.0f, 0, 0, 0, ShipSimulation::AT_PORT, "", "", 0, 2.0f};
+
+// ==========================================
+// Ship Logs System
+// ==========================================
+struct ShipLog {
+    char message[200];
+    sf::Color color;
+    float timestamp;
+};
+
+// Log storage (circular buffer)
+ShipLog shipLogs[20];
+int logCount = 0;
+int logStartIndex = 0;
+
+// Time simulation
+struct TimeSimulation {
+    int day;
+    int hour;
+    int minute;
+    Date startDate;
+    bool isPaused;
+};
+
+TimeSimulation timeSim = {1, 0, 0, {20, 12, 2024}, false};
+
 // Enhanced Color Palette for better visual hierarchy
 sf::Color COL_BG_DARK(30, 30, 35);
 sf::Color COL_ACCENT(0, 180, 255); 
@@ -202,6 +252,72 @@ bool portHasPreferredCompanyRoute(int portIndex) {
         r = r->next;
     }
     return false;
+}
+
+// ==========================================
+// Ship Logs & Simulation Functions
+// ==========================================
+void addShipLog(const char* message, bool isOurShip, sf::Clock& animClock) {
+    int index = (logStartIndex + logCount) % 20;
+    if (logCount < 20) logCount++;
+    else logStartIndex = (logStartIndex + 1) % 20;
+    
+    strcpy(shipLogs[index].message, message);
+    shipLogs[index].color = isOurShip ? sf::Color::Green : sf::Color(255, 165, 0); // Green for our ship, Orange for others
+    shipLogs[index].timestamp = animClock.getElapsedTime().asSeconds();
+}
+
+// Update time based on ship progress
+void updateSimulatedTime(float deltaTime) {
+    if (shipSim.isRunning && !timeSim.isPaused) {
+        // Advance simulation time (1 real second = 1 simulated hour)
+        // Use floating point to avoid drift
+        static float fractionalMinutes = 0.0f;
+        fractionalMinutes += deltaTime * 60.0f * shipSim.simulationSpeed;
+        
+        int wholeMinutes = (int)fractionalMinutes;
+        fractionalMinutes -= wholeMinutes;
+        
+        timeSim.minute += wholeMinutes;
+        while (timeSim.minute >= 60) {
+            timeSim.minute -= 60;
+            timeSim.hour++;
+        }
+        while (timeSim.hour >= 24) {
+            timeSim.hour -= 24;
+            timeSim.day++;
+        }
+    }
+}
+
+// Calculate angle between two points for ship rotation
+float getAngle(float x1, float y1, float x2, float y2) {
+    return atan2(y2 - y1, x2 - x1) * 180.0f / M_PI + 90.0f;
+}
+
+// Draw ship icon with wake effect
+void drawShip(sf::RenderWindow& window, float x, float y, float angle, sf::Color color) {
+    // Ship triangle shape
+    sf::ConvexShape ship;
+    ship.setPointCount(3);
+    ship.setPoint(0, sf::Vector2f(0, -12));   // Front
+    ship.setPoint(1, sf::Vector2f(-8, 10));   // Back left
+    ship.setPoint(2, sf::Vector2f(8, 10));    // Back right
+    
+    ship.setFillColor(color);
+    ship.setOutlineColor(sf::Color::White);
+    ship.setOutlineThickness(2);
+    ship.setPosition(x, y);
+    ship.setRotation(angle);
+    
+    window.draw(ship);
+    
+    // Draw wake effect behind ship
+    sf::CircleShape wake(4);
+    wake.setFillColor(sf::Color(255, 255, 255, 100));
+    wake.setPosition(x - 15 * cos(angle * M_PI / 180.0f), 
+                     y - 15 * sin(angle * M_PI / 180.0f));
+    window.draw(wake);
 }
 
 struct Journey {
@@ -1085,6 +1201,68 @@ void bookRouteAndSpawnShip(int routeIndex) {
 }
 
 // ==========================================
+// Ship Simulation Update Function
+// ==========================================
+void updateShipSimulation(float deltaTime, sf::Clock& animClock) {
+    if (!shipSim.isRunning || foundJourneysCount == 0) return;
+    
+    Journey& journey = foundJourneys[shipSim.selectedJourneyIndex];
+    
+    if (shipSim.status == ShipSimulation::AT_PORT) {
+        shipSim.timeAtPort += deltaTime;
+        
+        // Generate random other ship events at this port (time-based, approximately 1 per second on average)
+        static float eventAccumulator = 0.0f;
+        eventAccumulator += deltaTime;
+        if (eventAccumulator >= 1.0f && (rand() % 100 < 50)) { // 50% chance per second
+            eventAccumulator = 0.0f;
+            char msg[200];
+            const char* companies[] = {"MSC", "Maersk", "CMA-CGM", "Evergreen"};
+            snprintf(msg, sizeof(msg), "Ship %s-%d arrived at %s", 
+                    companies[rand() % 4], rand() % 1000, shipSim.currentPortName);
+            addShipLog(msg, false, animClock);
+        }
+        
+        if (shipSim.timeAtPort >= shipSim.departureDelay) {
+            shipSim.status = ShipSimulation::DEPARTING;
+            shipSim.timeAtPort = 0;
+            
+            if (shipSim.currentLegIndex < journey.legCount) {
+                Route* leg = journey.legs[shipSim.currentLegIndex];
+                strcpy(shipSim.nextPortName, ports[leg->destinationIndex].name);
+                
+                char msg[200];
+                snprintf(msg, sizeof(msg), "→ Departing from %s to %s", 
+                        shipSim.currentPortName, shipSim.nextPortName);
+                addShipLog(msg, true, animClock);
+            }
+        }
+    }
+    else if (shipSim.status == ShipSimulation::SAILING || shipSim.status == ShipSimulation::DEPARTING) {
+        shipSim.legProgress += deltaTime * 0.1f * shipSim.simulationSpeed;
+        
+        if (shipSim.legProgress >= 1.0f) {
+            // Arrived at next port
+            shipSim.legProgress = 0;
+            shipSim.currentLegIndex++;
+            shipSim.status = ShipSimulation::AT_PORT;
+            strcpy(shipSim.currentPortName, shipSim.nextPortName);
+            
+            char msg[200];
+            snprintf(msg, sizeof(msg), "✓ Arrived at %s", shipSim.currentPortName);
+            addShipLog(msg, true, animClock);
+            
+            if (shipSim.currentLegIndex >= journey.legCount) {
+                addShipLog("🎉 Journey Complete!", true, animClock);
+                shipSim.isRunning = false;
+            }
+        } else {
+            shipSim.status = ShipSimulation::SAILING;
+        }
+    }
+}
+
+// ==========================================
 // Graphics & Animation
 // ==========================================
 void runGraphics() {
@@ -1111,46 +1289,48 @@ void runGraphics() {
     float section1Y = 20;
     
     // Section 2: Date Input
-    float section2Y = 165;
+    float section2Y = 120;
     
     // Section 3: Action Buttons
-    float section3Y = 240;
+    float section3Y = 170;
     
     // Section 4: Status Display
-    float section4Y = 430;
+    float section4Y = 290;
     
     // Section 5: Preferences (collapsible)
-    float section5Y = 490;
+    float section5Y = 400;
     
-    // Section 6: Queue Status Legend
-    float section6Y = 670;
+    // Section 6: Simulation Controls
+    float section6Y = 620;
     
-    // Section 7: Simulation Controls
-    float section7Y = 780;
+    // Section 7: Ship Logs
+    float section7Y = 650;
     
     InputBox dateInput; 
-    dateInput.init(20, section2Y + 35, 300, 35, font, "DD/MM/YYYY");
+    dateInput.init(20, section2Y, 300, 35, font, "DD/MM/YYYY");
     
     InputBox companyInput; 
-    companyInput.init(20, section5Y + 55, 300, 28, font, "e.g., Maersk, MSC");
+    companyInput.init(20, section5Y + 20, 300, 28, font, "e.g., Maersk, MSC");
     
     InputBox avoidPortInput; 
-    avoidPortInput.init(20, section5Y + 105, 300, 28, font, "e.g., Dubai, Mumbai");
+    avoidPortInput.init(20, section5Y + 55, 300, 28, font, "e.g., Dubai, Mumbai");
     
     Button btnSearch, btnDijkstra, btnBook, btnClear;
-    btnSearch.init(20, section3Y, 145, 40, "Find Routes", font);
-    btnDijkstra.init(175, section3Y, 145, 40, "Cheapest Route", font);
-    btnBook.init(20, section3Y + 50, 145, 40, "Book All Routes", font);
-    btnClear.init(175, section3Y + 50, 145, 40, "Reset", font);
+    btnSearch.init(20, section3Y, 300, 35, "Find Routes (Date)", font);
+    btnDijkstra.init(20, section3Y + 40, 300, 35, "Find Cheapest Route", font);
+    btnBook.init(20, section3Y + 80, 300, 35, "Book Route (All)", font);
+    btnClear.init(20, section3Y + 120, 300, 35, "Reset", font);
     
     Button btnPreferences, btnApplyPrefs;
-    btnPreferences.init(20, section4Y + 45, 300, 35, "Toggle Filters", font);
-    btnApplyPrefs.init(20, section5Y + 145, 300, 30, "Apply Filters", font);
+    btnPreferences.init(20, section5Y, 300, 30, "Preferences", font);
+    btnApplyPrefs.init(20, section5Y + 95, 300, 30, "Apply Filters", font);
     
     // Simulation control buttons
-    Button btnSimPlayPause, btnSimSpeed;
-    btnSimPlayPause.init(20, section7Y + 20, 145, 35, "Play", font);
-    btnSimSpeed.init(175, section7Y + 20, 145, 35, "Speed: 60x", font);
+    Button btnStartSim, btnPauseSim, btnSpeedUp, btnSpeedDown;
+    btnStartSim.init(20, section6Y, 70, 25, "▶ Start", font);
+    btnPauseSim.init(95, section6Y, 70, 25, "⏸ Pause", font);
+    btnSpeedUp.init(170, section6Y, 60, 25, "⏩ 2x", font);
+    btnSpeedDown.init(235, section6Y, 60, 25, "⏪ 1x", font);
 
     // Section Headers and Labels with improved visual hierarchy
     sf::Text txtSectionPortSelect("PORT SELECTION", font, 12); 
@@ -1158,27 +1338,19 @@ void runGraphics() {
     txtSectionPortSelect.setFillColor(COL_SECTION_HEADER);
     txtSectionPortSelect.setStyle(sf::Text::Bold);
     
-    sf::Text txtStart("From: None", font, 15); 
-    txtStart.setPosition(20, section1Y + 25);
+    sf::Text txtStart("From: None", font, 16); 
+    txtStart.setPosition(20, 50);
     txtStart.setFillColor(COL_TEXT_WHITE);
     
-    sf::Text txtEnd("To:   None", font, 15); 
-    txtEnd.setPosition(20, section1Y + 55);
+    sf::Text txtEnd("To:   None", font, 16); 
+    txtEnd.setPosition(20, 80);
     txtEnd.setFillColor(COL_TEXT_WHITE);
-    
-    sf::Text txtHintPortSelect("Left-click: Start | Right-click: End", font, 10);
-    txtHintPortSelect.setPosition(20, section1Y + 85);
-    txtHintPortSelect.setFillColor(COL_TEXT_MUTED);
     
     // Date Section
     sf::Text txtSectionDate("DEPARTURE DATE", font, 12);
-    txtSectionDate.setPosition(20, section2Y);
+    txtSectionDate.setPosition(20, section2Y - 20);
     txtSectionDate.setFillColor(COL_SECTION_HEADER);
     txtSectionDate.setStyle(sf::Text::Bold);
-    
-    sf::Text txtDateLabel("Select preferred departure date:", font, 10);
-    txtDateLabel.setPosition(20, section2Y + 20);
-    txtDateLabel.setFillColor(COL_TEXT_MUTED);
     
     // Actions Section
     sf::Text txtSectionActions("SEARCH OPTIONS", font, 12);
@@ -1201,67 +1373,34 @@ void runGraphics() {
     txtDetails.setFillColor(sf::Color::Cyan);
     
     // Preferences Section
-    sf::Text txtPrefTitle("FILTER PREFERENCES", font, 12); 
-    txtPrefTitle.setPosition(20, section5Y); 
+    sf::Text txtPrefTitle("Preferences", font, 14); 
+    txtPrefTitle.setPosition(20, section5Y + 40); 
     txtPrefTitle.setFillColor(COL_SECTION_HEADER);
     txtPrefTitle.setStyle(sf::Text::Bold);
     
-    sf::Text txtCompanyLabel("Preferred Companies:", font, 11); 
-    txtCompanyLabel.setPosition(20, section5Y + 40); 
+    sf::Text txtCompanyLabel("Company:", font, 11); 
+    txtCompanyLabel.setPosition(20, section5Y + 60); 
     txtCompanyLabel.setFillColor(COL_TEXT_WHITE);
     
-    sf::Text txtAvoidLabel("Ports to Avoid:", font, 11); 
-    txtAvoidLabel.setPosition(20, section5Y + 90); 
+    sf::Text txtAvoidLabel("Avoid Port:", font, 11); 
+    txtAvoidLabel.setPosition(20, section5Y + 95); 
     txtAvoidLabel.setFillColor(COL_TEXT_WHITE);
     
-    // Queue Status Legend Section
-    sf::Text txtSectionQueue("QUEUE STATUS LEGEND", font, 12);
-    txtSectionQueue.setPosition(20, section6Y);
-    txtSectionQueue.setFillColor(COL_SECTION_HEADER);
-    txtSectionQueue.setStyle(sf::Text::Bold);
+    // Ship Logs Section
+    sf::Text txtLogsTitle("Ship Logs:", font, 14);
+    txtLogsTitle.setPosition(20, section7Y);
+    txtLogsTitle.setFillColor(COL_SECTION_HEADER);
+    txtLogsTitle.setStyle(sf::Text::Bold);
     
-    sf::Text txtQueueLegend1("Dashed Line: Ships in queue", font, 10);
-    txtQueueLegend1.setPosition(20, section6Y + 20);
-    txtQueueLegend1.setFillColor(COL_TEXT_WHITE);
-    
-    sf::Text txtQueueLegend2("Q:n = Queue size (n ships)", font, 10);
-    txtQueueLegend2.setPosition(20, section6Y + 38);
-    txtQueueLegend2.setFillColor(COL_TEXT_WHITE);
-    
-    sf::Text txtQueueLegend3("Wait time shown in hours/minutes", font, 10);
-    txtQueueLegend3.setPosition(20, section6Y + 56);
-    txtQueueLegend3.setFillColor(COL_TEXT_WHITE);
-    
-    // Visual queue indicator example
-    sf::CircleShape queueExampleDot(3.0f);
-    queueExampleDot.setFillColor(sf::Color(255, 200, 50, 220));
-    queueExampleDot.setOutlineThickness(1.0f);
-    queueExampleDot.setOutlineColor(sf::Color(180, 150, 0, 220));
-    queueExampleDot.setPosition(20, section6Y + 80);
-    
-    sf::Text txtQueueLegend4("= Waiting ship moving to port", font, 10);
-    txtQueueLegend4.setPosition(35, section6Y + 74);
-    txtQueueLegend4.setFillColor(COL_TEXT_WHITE);
-    
-    // Simulation Section
-    sf::Text txtSectionSim("SIMULATION", font, 12);
-    txtSectionSim.setPosition(20, section7Y);
-    txtSectionSim.setFillColor(COL_SECTION_HEADER);
-    txtSectionSim.setStyle(sf::Text::Bold);
-    
-    char simTimeBuffer[50] = "Time: 20/12/2024 00:00";
-    sf::Text txtSimTime(simTimeBuffer, font, 11);
-    txtSimTime.setPosition(20, section7Y + 65);
-    txtSimTime.setFillColor(COL_TEXT_WHITE);
-    
-    char simShipsBuffer[50] = "Active Ships: 0";
-    sf::Text txtSimShips(simShipsBuffer, font, 10);
-    txtSimShips.setPosition(20, section7Y + 85);
-    txtSimShips.setFillColor(COL_TEXT_MUTED);
+    // Time display for simulation
+    char timeDisplay[50] = "Day 1 - 00:00";
+    sf::Text txtTimeDisplay(timeDisplay, font, 12);
+    txtTimeDisplay.setPosition(20, section6Y + 30);
+    txtTimeDisplay.setFillColor(COL_TEXT_WHITE);
     
     // Separator lines for visual grouping
     sf::RectangleShape separator1(sf::Vector2f(300, 1));
-    separator1.setPosition(20, section2Y - 10);
+    separator1.setPosition(20, section2Y - 30);
     separator1.setFillColor(COL_SEPARATOR);
     
     sf::RectangleShape separator2(sf::Vector2f(300, 1));
@@ -1352,38 +1491,46 @@ void runGraphics() {
                     }
                 }
                 
-                // Simulation control buttons
-                if(btnSimPlayPause.isClicked(pos)) {
-                    simPaused = !simPaused;
-                    if (simPaused) {
-                        btnSimPlayPause.label.setString("Play");
-                    } else {
-                        btnSimPlayPause.label.setString("Pause");
-                        simClock.restart(); // Restart clock on resume
-                    }
+                // Ship simulation control buttons
+                if(btnStartSim.isClicked(pos) && foundJourneysCount > 0) {
+                    shipSim.isRunning = true;
+                    shipSim.currentLegIndex = 0;
+                    shipSim.legProgress = 0;
+                    shipSim.status = ShipSimulation::AT_PORT;
+                    strcpy(shipSim.currentPortName, ports[selectedStart].name);
+                    timeSim.day = 1;
+                    timeSim.hour = 0;
+                    timeSim.minute = 0;
+                    timeSim.isPaused = false;
+                    addShipLog("Journey started!", true, animClock);
+                    char msg[100];
+                    sprintf(msg, "⚓ Ship docked at %s", ports[selectedStart].name);
+                    addShipLog(msg, true, animClock);
                 }
                 
-                if(btnSimSpeed.isClicked(pos)) {
-                    // Cycle through speeds: 1x -> 10x -> 60x -> 120x -> 1x
-                    if (simSpeed == SIM_SPEED_1X) {
-                        simSpeed = SIM_SPEED_10X;
-                        btnSimSpeed.label.setString("Speed: 10x");
-                    } else if (simSpeed == SIM_SPEED_10X) {
-                        simSpeed = SIM_SPEED_60X;
-                        btnSimSpeed.label.setString("Speed: 60x");
-                    } else if (simSpeed == SIM_SPEED_60X) {
-                        simSpeed = SIM_SPEED_120X;
-                        btnSimSpeed.label.setString("Speed: 120x");
-                    } else {
-                        simSpeed = SIM_SPEED_1X;
-                        btnSimSpeed.label.setString("Speed: 1x");
-                    }
+                if(btnPauseSim.isClicked(pos)) {
+                    timeSim.isPaused = !timeSim.isPaused;
+                }
+                
+                if(btnSpeedUp.isClicked(pos)) {
+                    shipSim.simulationSpeed = (shipSim.simulationSpeed < 4.0f) ? shipSim.simulationSpeed * 2.0f : 4.0f;
+                }
+                
+                if(btnSpeedDown.isClicked(pos)) {
+                    shipSim.simulationSpeed = (shipSim.simulationSpeed > 0.5f) ? shipSim.simulationSpeed / 2.0f : 0.5f;
                 }
                 
                 if(btnClear.isClicked(pos)) {
                     selectedStart = -1; selectedEnd = -1; showJourneys = false;
                     bookingMode = 0;
                     showingDijkstra = false;
+                    
+                    // Reset ship simulation
+                    shipSim.isRunning = false;
+                    shipSim.currentLegIndex = 0;
+                    shipSim.legProgress = 0;
+                    logCount = 0;
+                    logStartIndex = 0;
                     
                     userPrefs.usePreferences = false;
                     userPrefs.preferredCompanyCount = 0;
@@ -1412,7 +1559,6 @@ void runGraphics() {
                     Time baseTime = {0, 0};
                     simTimeMinutes = getMinutes(baseDate, baseTime);
                     simPaused = true;
-                    btnSimPlayPause.label.setString("Play");
                     
                     strcpy(statusMessage, "Ready."); strcpy(pathDetails, ""); strcpy(inputDateString, "20/12/2024");
                     txtStart.setString("From: None"); txtEnd.setString("To:   None");
@@ -1509,8 +1655,10 @@ void runGraphics() {
         btnClear.update(mPos, mousePressed);
         btnPreferences.update(mPos, mousePressed); 
         btnApplyPrefs.update(mPos, mousePressed);
-        btnSimPlayPause.update(mPos, mousePressed);
-        btnSimSpeed.update(mPos, mousePressed);
+        btnStartSim.update(mPos, mousePressed);
+        btnPauseSim.update(mPos, mousePressed);
+        btnSpeedUp.update(mPos, mousePressed);
+        btnSpeedDown.update(mPos, mousePressed);
         dateInput.update(inputDateString, isTypingDate);
         companyInput.update(tempCompany, focusCompany);
         avoidPortInput.update(tempAvoidPort, focusAvoidPort);
@@ -1520,19 +1668,21 @@ void runGraphics() {
         float deltaTime = simClock.restart().asSeconds();
         updateSimulationClock(deltaTime);
         
-        // Update simulation UI
-        formatSimDateTime(simTimeMinutes, simTimeBuffer, sizeof(simTimeBuffer));
-        txtSimTime.setString(simTimeBuffer);
+        // Update ship simulation
+        updateShipSimulation(deltaTime, animClock);
+        updateSimulatedTime(deltaTime);
         
-        // Count active ships
+        // Update time display
+        sprintf(timeDisplay, "Day %d - %02d:%02d", timeSim.day, timeSim.hour, timeSim.minute);
+        txtTimeDisplay.setString(timeDisplay);
+        
+        // Count active ships (for old system)
         int activeShipCount = 0;
         Ship* s = activeShipsHead;
         while (s != nullptr) {
             activeShipCount++;
             s = s->next;
         }
-        snprintf(simShipsBuffer, sizeof(simShipsBuffer), "Active Ships: %d", activeShipCount);
-        txtSimShips.setString(simShipsBuffer);
         
         if (showingDijkstra && explorationProgress < 1.0f) {
             explorationProgress += 0.02f;
@@ -1637,16 +1787,23 @@ void runGraphics() {
                         };
                         window.draw(line, 2, sf::Lines);
 
-                        // Only animate particle on first route to reduce draw calls
+                        // Draw ship animation on first route
                         if (i == 0 && k == activeLeg && legProgress >= 0.0f && legProgress <= 1.0f) {
                             sf::Vector2f particlePos = p1 + (p2 - p1) * legProgress;
-                            sf::CircleShape particle(5);
-                            particle.setFillColor(sf::Color::White);
-                            particle.setOutlineThickness(1.0f);
-                            particle.setOutlineColor(sf::Color::Yellow);
-                            particle.setOrigin(5, 5);
-                            particle.setPosition(particlePos);
-                            window.draw(particle);
+                            float angle = getAngle(p1.x, p1.y, p2.x, p2.y);
+                            drawShip(window, particlePos.x, particlePos.y, angle, sf::Color::White);
+                        }
+                        
+                        // Draw ship simulation if active
+                        if (shipSim.isRunning && shipSim.selectedJourneyIndex == 0 && k == shipSim.currentLegIndex 
+                            && (shipSim.status == ShipSimulation::SAILING || shipSim.status == ShipSimulation::DEPARTING)) {
+                            sf::Vector2f shipPos = p1 + (p2 - p1) * shipSim.legProgress;
+                            float shipAngle = getAngle(p1.x, p1.y, p2.x, p2.y);
+                            drawShip(window, shipPos.x, shipPos.y, shipAngle, sf::Color::Green);
+                            
+                            // Update ship position for reference
+                            shipSim.shipX = shipPos.x;
+                            shipSim.shipY = shipPos.y;
                         }
 
                         float dist = getDistanceToLine(sf::Vector2f(mPos.x, mPos.y), p1, p2);
@@ -1849,16 +2006,15 @@ void runGraphics() {
         window.draw(separator3);
         window.draw(separator4);
         window.draw(separator5);
+        window.draw(separator6);
         
         // Section 1: Port Selection
         window.draw(txtSectionPortSelect);
         window.draw(txtStart); 
         window.draw(txtEnd);
-        window.draw(txtHintPortSelect);
         
         // Section 2: Date Input
         window.draw(txtSectionDate);
-        window.draw(txtDateLabel);
         dateInput.draw(window);
         
         // Section 3: Action Buttons
@@ -1873,10 +2029,9 @@ void runGraphics() {
         window.draw(txtStatus); 
         window.draw(txtDetails);
         
-        // Toggle Filters button
+        // Section 5: Preferences button and panel
         btnPreferences.draw(window);
         
-        // Section 5: Preferences (if visible)
         if (showPreferencesPanel) {
             window.draw(txtPrefTitle);
             window.draw(txtCompanyLabel);
@@ -1886,27 +2041,42 @@ void runGraphics() {
             btnApplyPrefs.draw(window);
         }
         
-        // Section 6: Queue Status Legend
-        window.draw(txtSectionQueue);
-        window.draw(txtQueueLegend1);
-        window.draw(txtQueueLegend2);
-        window.draw(txtQueueLegend3);
-        window.draw(queueExampleDot);
-        window.draw(txtQueueLegend4);
+        // Section 6: Simulation Controls
+        btnStartSim.draw(window);
+        btnPauseSim.draw(window);
+        btnSpeedUp.draw(window);
+        btnSpeedDown.draw(window);
+        window.draw(txtTimeDisplay);
         
-        // Section 7: Simulation Controls
-        window.draw(separator6);
-        window.draw(txtSectionSim);
-        btnSimPlayPause.draw(window);
-        btnSimSpeed.draw(window);
-        window.draw(txtSimTime);
-        window.draw(txtSimShips);
+        // Section 7: Ship Logs Panel
+        sf::RectangleShape logsPanel(sf::Vector2f(310, 350));
+        logsPanel.setPosition(20, 670);
+        logsPanel.setFillColor(sf::Color(20, 20, 25, 230));
+        logsPanel.setOutlineColor(sf::Color(60, 60, 70));
+        logsPanel.setOutlineThickness(1);
+        window.draw(logsPanel);
+        
+        window.draw(txtLogsTitle);
+        
+        // Draw each log entry (most recent first)
+        int yOffset = 695;
+        for (int i = 0; i < logCount && i < 15; i++) {
+            int idx = (logStartIndex + logCount - 1 - i) % 20; // Most recent first
+            sf::Text logText(shipLogs[idx].message, font, 10);
+            logText.setPosition(25, yOffset);
+            logText.setFillColor(shipLogs[idx].color);
+            window.draw(logText);
+            yOffset += 18;
+        }
         
         window.display();
     }
 }
 
 int main() {
+    // Seed random number generator for ship events
+    srand((unsigned int)time(NULL));
+    
     loadData();
     initCoordinates();
     
