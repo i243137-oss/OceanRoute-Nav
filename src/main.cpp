@@ -328,17 +328,21 @@ void spawnOtherShip(int portIndex, sf::Clock& animClock) {
     if (portIndex < 0 || portIndex >= totalPorts) return; // Bounds check
     
     const char* companies[] = {"MSC", "Maersk", "CMA-CGM", "Evergreen", "ONE"};
+    const int numCompanies = sizeof(companies) / sizeof(companies[0]);
+    
     OtherShip& ship = otherShips[otherShipCount++];
     ship.active = true;
     ship.portIndex = portIndex;
-    strcpy(ship.company, companies[rand() % 5]);
+    strcpy(ship.company, companies[rand() % numCompanies]);
     ship.shipNumber = rand() % 1000;
     ship.state = OtherShip::ARRIVING;
     ship.stateTimer = 0;
     ship.queuePosition = portQueues[portIndex].shipCount * 45.0f;
     
-    // Add to port queue
-    portQueues[portIndex].shipCount++;
+    // Add to port queue (with bounds check for ships array)
+    if (portQueues[portIndex].shipCount < 10) {
+        portQueues[portIndex].shipCount++;
+    }
     
     // Log arrival
     char msg[100];
@@ -2275,5 +2279,6 @@ int main() {
     if(visited) delete[] visited;
     if(exploredPorts) delete[] exploredPorts;
     if(finalPathPorts) delete[] finalPathPorts;
+    if(portQueues) delete[] portQueues;
     return 0;
 }
