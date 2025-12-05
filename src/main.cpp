@@ -1456,66 +1456,66 @@ void runGraphics() {
     sf::RectangleShape sidebar(sf::Vector2f(SIDEBAR_WIDTH, 1024.0f));
     sidebar.setFillColor(COL_BG_DARK); 
     
-    // Enhanced UI Layout with better spacing and sections
-    // Section 1: Port Selection (y: 10-70)
+    // FIXED SIDEBAR LAYOUT - No overlapping
+    // === Section 1: Port Selection (y: 10-65) ===
     float section1Y = 10;
     
-    // Section 2: Date Input (y: 70-110)
-    float section2Y = 88;
+    // === Section 2: Date Input (y: 70-115) ===
+    float section2Y = 70;
     
-    // Section 3: Action Buttons (y: 120-230)
-    float section3Y = 138;
+    // === Section 3: Search Buttons (y: 120-235) ===
+    float section3Y = 120;
     
-    // Section 4: Status Display (y: 270-320)
-    float section4Y = 270;
+    // === Section 4: Status + Reset (y: 240-310) ===
+    float section4Y = 240;
     
-    // Section 5: Preferences (collapsible) (y: 330-400)
-    float section5Y = 330;
+    // === Section 5: Preferences Button (y: 305-335) ===
+    float section5Y = 305;
     
-    // Section 6: Simulation Controls (y: 410-450)
-    float section6Y = 428;
+    // === Section 6: Simulation Controls (y: 340-380) ===
+    float section6Y = 345;
     
-    // Section 7: Ship Logs (y: 460-1000)
-    float section7Y = 478;
+    // === Section 7: Ship Logs (y: 395-1000) ===
+    float section7Y = 395;
     
     InputBox dateInput; 
-    dateInput.init(20, section2Y, 310, 28, font, "DD/MM/YYYY");
+    dateInput.init(20, 88, 310, 25, font, "DD/MM/YYYY");
     
     InputBox companyInput; 
-    companyInput.init(20, section5Y + 40, 310, 28, font, "e.g., Maersk, MSC");
+    companyInput.init(25, 383, 290, 25, font, "e.g., Maersk, MSC");
     
     InputBox avoidPortInput; 
-    avoidPortInput.init(20, section5Y + 75, 310, 28, font, "e.g., Dubai, Mumbai");
+    avoidPortInput.init(25, 433, 290, 25, font, "e.g., Dubai, Mumbai");
     
     Button btnSearch, btnDijkstra, btnBook, btnClear;
-    btnSearch.init(20, section3Y, 310, 28, "Find Routes (Date)", font);
-    btnDijkstra.init(20, section3Y + 32, 310, 28, "Find Cheapest Route", font);
-    btnBook.init(20, section3Y + 64, 310, 28, "Book Route (All)", font);
-    btnClear.init(20, section3Y + 96, 310, 28, "Reset", font);
+    btnSearch.init(20, 138, 310, 28, "Find Routes (Date)", font);
+    btnDijkstra.init(20, 170, 310, 28, "Find Cheapest Route", font);
+    btnBook.init(20, 202, 310, 28, "Book Route (All)", font);
+    btnClear.init(250, 238, 80, 20, "Reset", font);
     
     Button btnPreferences, btnApplyPrefs;
-    btnPreferences.init(20, section5Y, 310, 28, "Preferences", font);
-    btnApplyPrefs.init(20, section5Y + 115, 310, 28, "Apply Filters", font);
+    btnPreferences.init(20, 305, 310, 28, "Preferences", font);
+    btnApplyPrefs.init(25, 470, 290, 28, "Apply Filters", font);
     
     // Simulation control buttons
     Button btnStartSim, btnPauseSim, btnSpeedUp, btnSpeedDown;
-    btnStartSim.init(20, section6Y, 70, 25, "> Start", font);
-    btnPauseSim.init(95, section6Y, 70, 25, "|| Pause", font);
-    btnSpeedUp.init(170, section6Y, 60, 25, ">> 2x", font);
-    btnSpeedDown.init(235, section6Y, 60, 25, "<< 1x", font);
+    btnStartSim.init(20, 363, 72, 24, "> Start", font);
+    btnPauseSim.init(97, 363, 72, 24, "|| Pause", font);
+    btnSpeedUp.init(174, 363, 60, 24, ">> 2x", font);
+    btnSpeedDown.init(239, 363, 60, 24, "<< 1x", font);
 
     // Section Headers and Labels with improved visual hierarchy
     sf::Text txtSectionPortSelect("PORT SELECTION", font, 10); 
-    txtSectionPortSelect.setPosition(20, section1Y);
+    txtSectionPortSelect.setPosition(20, 10);
     txtSectionPortSelect.setFillColor(COL_SECTION_HEADER);
     txtSectionPortSelect.setStyle(sf::Text::Bold);
     
-    sf::Text txtStart("From: None", font, 16); 
+    sf::Text txtStart("From: None", font, 14); 
     txtStart.setPosition(20, 28);
     txtStart.setFillColor(COL_TEXT_WHITE);
     
-    sf::Text txtEnd("To:   None", font, 16); 
-    txtEnd.setPosition(20, 48);
+    sf::Text txtEnd("To:   None", font, 14); 
+    txtEnd.setPosition(20, 46);
     txtEnd.setFillColor(COL_TEXT_WHITE);
     
     // Date Section
@@ -1532,73 +1532,70 @@ void runGraphics() {
     
     // Status Section
     sf::Text txtSectionStatus("STATUS", font, 10);
-    txtSectionStatus.setPosition(20, section4Y);
+    txtSectionStatus.setPosition(20, 240);
     txtSectionStatus.setFillColor(COL_SECTION_HEADER);
     txtSectionStatus.setStyle(sf::Text::Bold);
     
-    sf::Text txtStatus(statusMessage, font, 14); 
-    txtStatus.setPosition(20, 288); 
+    sf::Text txtStatus(statusMessage, font, 13); 
+    txtStatus.setPosition(20, 258); 
     txtStatus.setFillColor(COL_STATUS_SUCCESS);
     
-    sf::Text txtDetails(pathDetails, font, 12); 
-    txtDetails.setPosition(20, 306); 
+    sf::Text txtDetails(pathDetails, font, 11); 
+    txtDetails.setPosition(20, 278); 
     txtDetails.setFillColor(sf::Color::Cyan);
     
-    // Preferences Section
-    sf::Text txtPrefTitle("Preferences", font, 14); 
-    txtPrefTitle.setPosition(20, section5Y + 35); 
-    txtPrefTitle.setFillColor(COL_SECTION_HEADER);
-    txtPrefTitle.setStyle(sf::Text::Bold);
+    // Preferences Section overlay elements
+    sf::Text txtPrefTitle("PREFERENCES", font, 12); 
+    txtPrefTitle.setPosition(25, 340); 
+    txtPrefTitle.setFillColor(sf::Color::Cyan);
     
-    sf::Text txtCompanyLabel("Company:", font, 11); 
-    txtCompanyLabel.setPosition(20, section5Y + 70); 
+    sf::Text txtCompanyLabel("Company (comma-sep):", font, 10); 
+    txtCompanyLabel.setPosition(25, 365); 
     txtCompanyLabel.setFillColor(COL_TEXT_WHITE);
     
-    sf::Text txtAvoidLabel("Avoid Port:", font, 11); 
-    txtAvoidLabel.setPosition(20, section5Y + 105); 
+    sf::Text txtAvoidLabel("Avoid Ports (comma-sep):", font, 10); 
+    txtAvoidLabel.setPosition(25, 415); 
     txtAvoidLabel.setFillColor(COL_TEXT_WHITE);
+    
+    sf::Text txtCloseBtn("X", font, 14);
+    txtCloseBtn.setPosition(310, 335);
+    txtCloseBtn.setFillColor(sf::Color::Red);
     
     // Simulation Section
     sf::Text txtSimSection("SIMULATION", font, 10);
-    txtSimSection.setPosition(20, 410);
+    txtSimSection.setPosition(20, 345);
     txtSimSection.setFillColor(COL_SECTION_HEADER);
     txtSimSection.setStyle(sf::Text::Bold);
     
     // Ship Logs Section
     sf::Text txtLogsTitle("SHIP LOGS", font, 10);
-    txtLogsTitle.setPosition(20, 460);
+    txtLogsTitle.setPosition(20, 395);
     txtLogsTitle.setFillColor(COL_SECTION_HEADER);
     txtLogsTitle.setStyle(sf::Text::Bold);
     
-    // Time display for simulation
-    char timeDisplay[50] = "Day 1 - 00:00";
-    sf::Text txtTimeDisplay(timeDisplay, font, 12);
-    txtTimeDisplay.setPosition(20, section6Y + 30);
-    txtTimeDisplay.setFillColor(COL_TEXT_WHITE);
-    
     // Separator lines for visual grouping
     sf::RectangleShape separator1(sf::Vector2f(300, 1));
-    separator1.setPosition(20, section2Y - 30);
+    separator1.setPosition(20, 60);
     separator1.setFillColor(COL_SEPARATOR);
     
     sf::RectangleShape separator2(sf::Vector2f(300, 1));
-    separator2.setPosition(20, section3Y - 30);
+    separator2.setPosition(20, 115);
     separator2.setFillColor(COL_SEPARATOR);
     
     sf::RectangleShape separator3(sf::Vector2f(300, 1));
-    separator3.setPosition(20, section4Y - 10);
+    separator3.setPosition(20, 235);
     separator3.setFillColor(COL_SEPARATOR);
     
     sf::RectangleShape separator4(sf::Vector2f(300, 1));
-    separator4.setPosition(20, section5Y - 10);
+    separator4.setPosition(20, 300);
     separator4.setFillColor(COL_SEPARATOR);
     
     sf::RectangleShape separator5(sf::Vector2f(300, 1));
-    separator5.setPosition(20, section6Y - 10);
+    separator5.setPosition(20, 340);
     separator5.setFillColor(COL_SEPARATOR);
     
     sf::RectangleShape separator6(sf::Vector2f(300, 1));
-    separator6.setPosition(20, section7Y - 10);
+    separator6.setPosition(20, 390);
     separator6.setFillColor(COL_SEPARATOR);
     
     sf::RectangleShape tooltipBox(sf::Vector2f(320, 140));
@@ -1635,6 +1632,107 @@ void runGraphics() {
 
             if(event.type == sf::Event::MouseButtonPressed) {
                 sf::Vector2i pos = sf::Mouse::getPosition(window);
+                
+                // If preferences panel is open, handle clicks specially
+                if (showPreferencesPanel) {
+                    // Check if clicking close button (X)
+                    if (pos.x >= 305 && pos.x <= 330 && pos.y >= 330 && pos.y <= 355) {
+                        showPreferencesPanel = false;
+                    }
+                    // Check if clicking Apply button
+                    else if (btnApplyPrefs.isClicked(pos)) {
+                        // Apply preferences logic...
+                        userPrefs.preferredCompanyCount = 0;
+                        userPrefs.avoidedPortCount = 0;
+                        
+                        if (strlen(tempCompany) > 0 || strlen(tempAvoidPort) > 0) {
+                            userPrefs.usePreferences = true;
+                            
+                            // Parse comma-separated companies
+                            if (strlen(tempCompany) > 0) {
+                                char tempCopy[50];
+                                strncpy(tempCopy, tempCompany, 49);
+                                tempCopy[49] = '\0';
+                                char* token = strtok(tempCopy, ",");
+                                while (token != nullptr && userPrefs.preferredCompanyCount < 5) {
+                                    // Trim leading spaces
+                                    while (*token == ' ') token++;
+                                    // Trim trailing spaces
+                                    int len = strlen(token);
+                                    if (len > 0) {
+                                        char* end = token + len - 1;
+                                        while (end > token && *end == ' ') { *end = '\0'; end--; }
+                                    }
+                                    
+                                    if (strlen(token) > 0) {
+                                        strcpy(userPrefs.preferredCompanies[userPrefs.preferredCompanyCount], token);
+                                        userPrefs.preferredCompanyCount++;
+                                    }
+                                    token = strtok(nullptr, ",");
+                                }
+                            }
+                            
+                            // Parse comma-separated avoided ports
+                            if (strlen(tempAvoidPort) > 0) {
+                                char tempCopy[50];
+                                strncpy(tempCopy, tempAvoidPort, 49);
+                                tempCopy[49] = '\0';
+                                char* token = strtok(tempCopy, ",");
+                                while (token != nullptr && userPrefs.avoidedPortCount < 10) {
+                                    // Trim leading spaces
+                                    while (*token == ' ') token++;
+                                    // Trim trailing spaces
+                                    int len = strlen(token);
+                                    if (len > 0) {
+                                        char* end = token + len - 1;
+                                        while (end > token && *end == ' ') { *end = '\0'; end--; }
+                                    }
+                                    
+                                    if (strlen(token) > 0) {
+                                        strcpy(userPrefs.avoidedPorts[userPrefs.avoidedPortCount], token);
+                                        userPrefs.avoidedPortCount++;
+                                    }
+                                    token = strtok(nullptr, ",");
+                                }
+                            }
+                            
+                            // Debug output
+                            printf("DEBUG: Preferences Applied\n");
+                            printf("DEBUG: usePreferences = %s\n", userPrefs.usePreferences ? "true" : "false");
+                            printf("DEBUG: avoidedPortCount = %d\n", userPrefs.avoidedPortCount);
+                            for (int i = 0; i < userPrefs.avoidedPortCount; i++) {
+                                printf("DEBUG: avoidedPorts[%d] = '%s'\n", i, userPrefs.avoidedPorts[i]);
+                            }
+                            printf("DEBUG: preferredCompanyCount = %d\n", userPrefs.preferredCompanyCount);
+                            for (int i = 0; i < userPrefs.preferredCompanyCount; i++) {
+                                printf("DEBUG: preferredCompanies[%d] = '%s'\n", i, userPrefs.preferredCompanies[i]);
+                            }
+                            
+                            strcpy(statusMessage, "Filters applied!");
+                        } else {
+                            userPrefs.usePreferences = false;
+                            strcpy(statusMessage, "Filters cleared!");
+                        }
+                        
+                        showPreferencesPanel = false;
+                    }
+                    // Check if clicking input boxes
+                    else if (companyInput.isClicked(pos)) {
+                        focusCompany = true;
+                        focusAvoidPort = false;
+                    }
+                    else if (avoidPortInput.isClicked(pos)) {
+                        focusAvoidPort = true;
+                        focusCompany = false;
+                    }
+                    // Click outside panel closes it
+                    else if (pos.x < 15 || pos.x > 335 || pos.y < 330 || pos.y > 510) {
+                        showPreferencesPanel = false;
+                    }
+                    
+                    // Don't process other clicks when panel is open
+                    continue;
+                }
                 
                 if(dateInput.isClicked(pos)) isTypingDate = true; else isTypingDate = false;
                 if(companyInput.isClicked(pos)) focusCompany = true; else focusCompany = false;
@@ -1745,82 +1843,6 @@ void runGraphics() {
                 if(btnPreferences.isClicked(pos)) {
                     showPreferencesPanel = !showPreferencesPanel;
                 }
-                
-                if(btnApplyPrefs.isClicked(pos)) {
-                    userPrefs.preferredCompanyCount = 0;
-                    userPrefs.avoidedPortCount = 0;
-                    
-                    if (strlen(tempCompany) > 0 || strlen(tempAvoidPort) > 0) {
-                        userPrefs.usePreferences = true;
-                        
-                        // Parse comma-separated companies
-                        if (strlen(tempCompany) > 0) {
-                            char tempCopy[50];
-                            strncpy(tempCopy, tempCompany, 49);
-                            tempCopy[49] = '\0';
-                            char* token = strtok(tempCopy, ",");
-                            while (token != nullptr && userPrefs.preferredCompanyCount < 5) {
-                                // Trim leading spaces
-                                while (*token == ' ') token++;
-                                // Trim trailing spaces
-                                int len = strlen(token);
-                                if (len > 0) {
-                                    char* end = token + len - 1;
-                                    while (end > token && *end == ' ') { *end = '\0'; end--; }
-                                }
-                                
-                                if (strlen(token) > 0) {
-                                    strcpy(userPrefs.preferredCompanies[userPrefs.preferredCompanyCount], token);
-                                    userPrefs.preferredCompanyCount++;
-                                }
-                                token = strtok(nullptr, ",");
-                            }
-                        }
-                        
-                        // Parse comma-separated avoided ports
-                        if (strlen(tempAvoidPort) > 0) {
-                            char tempCopy[50];
-                            strncpy(tempCopy, tempAvoidPort, 49);
-                            tempCopy[49] = '\0';
-                            char* token = strtok(tempCopy, ",");
-                            while (token != nullptr && userPrefs.avoidedPortCount < 10) {
-                                // Trim leading spaces
-                                while (*token == ' ') token++;
-                                // Trim trailing spaces
-                                int len = strlen(token);
-                                if (len > 0) {
-                                    char* end = token + len - 1;
-                                    while (end > token && *end == ' ') { *end = '\0'; end--; }
-                                }
-                                
-                                if (strlen(token) > 0) {
-                                    strcpy(userPrefs.avoidedPorts[userPrefs.avoidedPortCount], token);
-                                    userPrefs.avoidedPortCount++;
-                                }
-                                token = strtok(nullptr, ",");
-                            }
-                        }
-                        
-                        // Debug output
-                        printf("DEBUG: Preferences Applied\n");
-                        printf("DEBUG: usePreferences = %s\n", userPrefs.usePreferences ? "true" : "false");
-                        printf("DEBUG: avoidedPortCount = %d\n", userPrefs.avoidedPortCount);
-                        for (int i = 0; i < userPrefs.avoidedPortCount; i++) {
-                            printf("DEBUG: avoidedPorts[%d] = '%s'\n", i, userPrefs.avoidedPorts[i]);
-                        }
-                        printf("DEBUG: preferredCompanyCount = %d\n", userPrefs.preferredCompanyCount);
-                        for (int i = 0; i < userPrefs.preferredCompanyCount; i++) {
-                            printf("DEBUG: preferredCompanies[%d] = '%s'\n", i, userPrefs.preferredCompanies[i]);
-                        }
-                        
-                        strcpy(statusMessage, "Filters applied!");
-                    } else {
-                        userPrefs.usePreferences = false;
-                        strcpy(statusMessage, "Filters cleared!");
-                    }
-                    
-                    showPreferencesPanel = false;
-                }
             }
         }
 
@@ -1850,10 +1872,6 @@ void runGraphics() {
         updateShipSimulation(deltaTime, animClock);
         updateSimulatedTime(deltaTime);
         updateOtherShips(deltaTime, animClock);
-        
-        // Update time display
-        sprintf(timeDisplay, "Day %d - %02d:%02d", timeSim.day, timeSim.hour, timeSim.minute);
-        txtTimeDisplay.setString(timeDisplay);
         
         // Count active ships (for old system)
         int activeShipCount = 0;
@@ -2176,6 +2194,44 @@ void runGraphics() {
         
         // Draw other ships in queue
         drawOtherShipsInQueue(window);
+        
+        // Draw time simulation display on TOP of the map (not in sidebar)
+        if (shipSim.isRunning || showJourneys) {
+            // Position at top center of map area
+            float mapCenterX = MAP_OFFSET_X + (1536 / 2.0f);
+            float timeY = 20;
+            
+            // Background box for time display
+            sf::RectangleShape timeBox(sf::Vector2f(200, 40));
+            timeBox.setFillColor(sf::Color(0, 0, 0, 200));
+            timeBox.setOutlineColor(sf::Color::Cyan);
+            timeBox.setOutlineThickness(2);
+            timeBox.setPosition(mapCenterX - 100, timeY);
+            window.draw(timeBox);
+            
+            // Time text
+            char timeStr[50];
+            sprintf(timeStr, "Day %d - %02d:%02d", timeSim.day, timeSim.hour, timeSim.minute);
+            sf::Text timeText(timeStr, font, 18);
+            timeText.setFillColor(sf::Color::White);
+            timeText.setStyle(sf::Text::Bold);
+            
+            // Center the text in the box
+            sf::FloatRect textBounds = timeText.getLocalBounds();
+            timeText.setOrigin(textBounds.width / 2, textBounds.height / 2);
+            timeText.setPosition(mapCenterX, timeY + 20);
+            window.draw(timeText);
+            
+            // Speed indicator below time
+            char speedStr[20];
+            sprintf(speedStr, "Speed: %.1fx", shipSim.simulationSpeed);
+            sf::Text speedText(speedStr, font, 12);
+            speedText.setFillColor(sf::Color(150, 150, 150));
+            sf::FloatRect speedBounds = speedText.getLocalBounds();
+            speedText.setOrigin(speedBounds.width / 2, 0);
+            speedText.setPosition(mapCenterX, timeY + 45);
+            window.draw(speedText);
+        }
 
         // Draw sidebar and all UI elements with proper layering
         window.draw(sidebar);
@@ -2209,17 +2265,8 @@ void runGraphics() {
         window.draw(txtStatus); 
         window.draw(txtDetails);
         
-        // Section 5: Preferences button and panel
+        // Section 5: Preferences button
         btnPreferences.draw(window);
-        
-        if (showPreferencesPanel) {
-            window.draw(txtPrefTitle);
-            window.draw(txtCompanyLabel);
-            companyInput.draw(window);
-            window.draw(txtAvoidLabel);
-            avoidPortInput.draw(window);
-            btnApplyPrefs.draw(window);
-        }
         
         // Section 6: Simulation Controls
         window.draw(txtSimSection);
@@ -2227,27 +2274,55 @@ void runGraphics() {
         btnPauseSim.draw(window);
         btnSpeedUp.draw(window);
         btnSpeedDown.draw(window);
-        window.draw(txtTimeDisplay);
         
         // Section 7: Ship Logs Panel
-        sf::RectangleShape logsPanel(sf::Vector2f(310, 350));
-        logsPanel.setPosition(20, 670);
-        logsPanel.setFillColor(sf::Color(20, 20, 25, 230));
-        logsPanel.setOutlineColor(sf::Color(60, 60, 70));
+        sf::RectangleShape logsPanel(sf::Vector2f(310, 600));
+        logsPanel.setPosition(20, 413);
+        logsPanel.setFillColor(sf::Color(15, 18, 25, 240));
+        logsPanel.setOutlineColor(sf::Color(50, 55, 65));
         logsPanel.setOutlineThickness(1);
         window.draw(logsPanel);
         
         window.draw(txtLogsTitle);
         
         // Draw each log entry (most recent first)
-        int yOffset = 695;
-        for (int i = 0; i < logCount && i < 15; i++) {
+        int yOffset = 418;
+        for (int i = 0; i < logCount && i < 30; i++) {
             int idx = (logStartIndex + logCount - 1 - i) % 20; // Most recent first
-            sf::Text logText(shipLogs[idx].message, font, 10);
+            sf::Text logText(shipLogs[idx].message, font, 9);
             logText.setPosition(25, yOffset);
             logText.setFillColor(shipLogs[idx].color);
             window.draw(logText);
-            yOffset += 18;
+            yOffset += 15;
+            if (yOffset > 990) break; // Don't draw beyond visible area
+        }
+        
+        // Preferences panel - draw as an OVERLAY on top of everything
+        if (showPreferencesPanel) {
+            // Semi-transparent background overlay for the entire preferences area
+            sf::RectangleShape prefOverlay(sf::Vector2f(320, 180));
+            prefOverlay.setFillColor(sf::Color(20, 25, 35, 250));
+            prefOverlay.setOutlineColor(sf::Color::Cyan);
+            prefOverlay.setOutlineThickness(2);
+            prefOverlay.setPosition(15, 330);
+            window.draw(prefOverlay);
+            
+            // Preferences title
+            window.draw(txtPrefTitle);
+            
+            // Close button (X) in top right corner of panel
+            window.draw(txtCloseBtn);
+            
+            // Company filter
+            window.draw(txtCompanyLabel);
+            companyInput.draw(window);
+            
+            // Avoid ports filter
+            window.draw(txtAvoidLabel);
+            avoidPortInput.draw(window);
+            
+            // Apply button
+            btnApplyPrefs.draw(window);
         }
         
         window.display();
