@@ -1,7 +1,9 @@
 build/app.exe
 build/*.o
 build/*.dll
+build/OceanRouteNav
 *.o
 *.exe
 src/*.exe
 src/*.o
+OceanRouteNav

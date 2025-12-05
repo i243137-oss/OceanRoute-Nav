@@ -12,6 +12,9 @@ using namespace std;
 // Debug flag for route evaluation logging
 #define DEBUG_ROUTE_EVALUATION 1
 
+// Debug flag to enable demo queue data at Singapore
+#define ENABLE_DEMO_QUEUE_DATA 1
+
 // Cross-platform case-insensitive string comparison
 #ifdef _WIN32
     #define strcasecmp _stricmp
@@ -99,6 +102,15 @@ const float MAP_OFFSET_X = 350.0f;
 const int MAX_ROUTES_TO_DISPLAY = 5;
 const int MAX_ROUTES_FOR_GLOW = 3;
 const float GLOW_OFFSET = 2.0f;
+const int MAX_QUEUE_SHIPS_DISPLAY = 3; // Maximum number of animated ships to show in queue visualization
+const int DEFAULT_DOCK_SLOTS = 2;      // Default number of docking slots per port
+
+// Demo queue data constants (used when ENABLE_DEMO_QUEUE_DATA is enabled)
+const int DEMO_QUEUE_COUNT = 2;        // Number of ships waiting in Singapore demo queue
+const int DEMO_SERVICE_COUNT = 2;      // Number of ships being serviced in Singapore demo
+
+// UI constants
+const int QUEUE_LABEL_BUFFER_SIZE = 50; // Buffer size for queue label text
 
 int selectedStart = -1;
 int selectedEnd = -1;
@@ -358,6 +370,22 @@ void loadData() {
             strcpy(ports[i].name, n);
             ports[i].dailyCharge = c;
             ports[i].headRoute = nullptr;
+            
+            // Initialize dock queue management fields with defaults
+            ports[i].dockSlots = DEFAULT_DOCK_SLOTS;  // Default docking slots per port
+            ports[i].queueCount = 0;                   // No ships waiting initially
+            ports[i].inServiceCount = 0;               // No ships being serviced initially
+            ports[i].estWaitMinutes = 0;               // No wait time initially
+            
+            #if ENABLE_DEMO_QUEUE_DATA
+            // Seed Singapore with demo queue data for visualization
+            if (strcmp(ports[i].name, "Singapore") == 0) {
+                ports[i].queueCount = DEMO_QUEUE_COUNT;       // Ships waiting in queue
+                ports[i].inServiceCount = DEMO_SERVICE_COUNT; // Ships currently being serviced
+                recomputeEstWait(ports[i]);                   // Compute estimated wait time
+            }
+            #endif
+            
             i++;
         }
     }
@@ -1171,6 +1199,62 @@ void runGraphics() {
                 p.setScale(s, s);
                 p.setOrigin(tPin.getSize().x/2.0f, tPin.getSize().y);
                 window.draw(p);
+            }
+            
+            // Draw queue visualization if port has waiting ships
+            if (ports[i].queueCount > 0) {
+                // Draw dashed line queue indicator - length proportional to queue size
+                float queueLineLength = 30.0f + (ports[i].queueCount * 10.0f);
+                float dashLength = 5.0f;
+                float gapLength = 3.0f;
+                float startX = ports[i].x - queueLineLength;
+                float startY = ports[i].y - 15.0f; // Above the port pin
+                
+                // Draw dashed line approaching the port
+                int numDashes = (int)(queueLineLength / (dashLength + gapLength));
+                for (int d = 0; d < numDashes; d++) {
+                    float dashX = startX + d * (dashLength + gapLength);
+                    sf::Vertex dash[] = {
+                        sf::Vertex(sf::Vector2f(dashX, startY), sf::Color(200, 200, 0, 180)),
+                        sf::Vertex(sf::Vector2f(dashX + dashLength, startY), sf::Color(200, 200, 0, 180))
+                    };
+                    window.draw(dash, 2, sf::Lines);
+                }
+                
+                // Animate small circles (ships) moving toward the port
+                int shipsToShow = (ports[i].queueCount > MAX_QUEUE_SHIPS_DISPLAY) ? MAX_QUEUE_SHIPS_DISPLAY : ports[i].queueCount;
+                for (int s = 0; s < shipsToShow; s++) {
+                    // Each ship animates with a different phase offset
+                    float animPhase = fmod(time * 0.5f + s * 0.3f, 1.0f);
+                    float shipX = startX + animPhase * queueLineLength;
+                    float shipY = startY;
+                    
+                    sf::CircleShape ship(3.0f);
+                    ship.setFillColor(sf::Color(255, 200, 50, 220));
+                    ship.setOutlineThickness(1.0f);
+                    ship.setOutlineColor(sf::Color(180, 150, 0, 220));
+                    ship.setOrigin(3.0f, 3.0f);
+                    ship.setPosition(shipX, shipY);
+                    window.draw(ship);
+                }
+                
+                // Draw text label showing queue size and estimated wait
+                char queueLabel[QUEUE_LABEL_BUFFER_SIZE];
+                // Display time in hours if >= 1 hour, otherwise show minutes
+                if (ports[i].estWaitMinutes >= 60) {
+                    snprintf(queueLabel, sizeof(queueLabel), "Q:%d | %dh", 
+                            ports[i].queueCount, ports[i].estWaitMinutes / 60);
+                } else {
+                    snprintf(queueLabel, sizeof(queueLabel), "Q:%d | %dm", 
+                            ports[i].queueCount, ports[i].estWaitMinutes);
+                }
+                
+                sf::Text queueText(queueLabel, font, 9);
+                queueText.setFillColor(sf::Color(255, 255, 100));
+                queueText.setOutlineColor(sf::Color::Black);
+                queueText.setOutlineThickness(1.0f);
+                queueText.setPosition(ports[i].x - 35, ports[i].y - 30);
+                window.draw(queueText);
             }
             
             if (showJourneys && portInRoute[i]) {

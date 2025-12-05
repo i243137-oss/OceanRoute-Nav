@@ -52,6 +52,12 @@ struct Port {
     int minTime;
     int parentIndex;
     bool visited;
+    
+    // Dock Queue Management
+    int dockSlots;             // Number of available docking slots (default: 2)
+    int queueCount;            // Number of ships waiting in queue
+    int inServiceCount;        // Number of ships currently being serviced
+    int estWaitMinutes;        // Estimated wait time in minutes for new arrivals
 };
 
 // ==========================================
@@ -205,5 +211,57 @@ public:
     
     bool isEmpty() { return top == nullptr; }
 };
+
+// ==========================================
+// 7. Queue Management Helper Functions
+// ==========================================
+const int DEFAULT_SERVICE_TIME_MINUTES = 240; // 4 hours average service time per ship
+
+// Recompute estimated wait time for a port
+// Formula: For a new arrival, wait time = queueCount * avgServiceTime if docks are full
+// If docks have space, wait is 0. This gives a simple approximation of wait time.
+inline void recomputeEstWait(Port& port) {
+    // If there's queue and all docks are occupied, new arrivals must wait
+    if (port.inServiceCount >= port.dockSlots && port.queueCount > 0) {
+        // Wait time is queue size times average service time
+        port.estWaitMinutes = port.queueCount * DEFAULT_SERVICE_TIME_MINUTES;
+    } else if (port.inServiceCount >= port.dockSlots) {
+        // Docks full but no queue - minimal wait for next slot
+        port.estWaitMinutes = DEFAULT_SERVICE_TIME_MINUTES;
+    } else {
+        // Docks available - no wait
+        port.estWaitMinutes = 0;
+    }
+}
+
+// Ship arrives at port and joins queue
+inline void shipArrival(Port& port) {
+    port.queueCount++;
+    recomputeEstWait(port);
+}
+
+// Start service when a dock slot becomes available
+inline void startService(Port& port) {
+    if (port.queueCount > 0 && port.inServiceCount < port.dockSlots) {
+        port.queueCount--;
+        port.inServiceCount++;
+        recomputeEstWait(port);
+    }
+}
+
+// Finish service and free up a dock slot
+// Note: Automatically starts servicing the next ship in queue if available,
+// simulating real-world port operations where queued ships immediately dock when slots open
+inline void finishService(Port& port) {
+    if (port.inServiceCount > 0) {
+        port.inServiceCount--;
+        // Automatically start servicing next ship in queue if available
+        if (port.queueCount > 0) {
+            port.queueCount--;
+            port.inServiceCount++;
+        }
+        recomputeEstWait(port);
+    }
+}
 
 #endif

@@ -40,6 +40,7 @@ Unlike standard navigation tools, this project is built **entirely from scratch*
 | **🕸️ Global Network** | `Adjacency List` | Ports act as nodes connected by weighted edges representing sea routes. |
 | **📅 Schedule Management** | `Linked Lists` | Handles complex multi-leg journeys (e.g., Karachi → Dubai → Athens). |
 | **🚦 Traffic Control** | `FIFO Queue` | Simulates port congestion; ships wait in queue if docks are full. |
+| **⚓ Dock Queue Visualization** | `Real-time` | Visual representation of waiting ships at each port with animated queue indicators and estimated wait times. |
 | **🎨 Interactive UI** | `SFML` | Beautiful, hardware-accelerated 2D visualization with hover effects and animations. |
 | **🔍 Custom Filters** | `Sub-graphing` | Filter routes by specific shipping companies (e.g., Maersk) or avoid specific ports. |
 
@@ -112,6 +113,17 @@ We take pride in the effort poured into this project.
 Modify `ports.txt` or `Routes.txt` to expand the world:
 *   `Routes.txt`: `Origin Destination Date Time Cost Company`
 *   `ports.txt`: `PortName X_Coord Y_Coord Daily_Fee`
+
+### ⚓ Dock Queue Visualization
+
+The application now features real-time visualization of port congestion:
+
+*   **Queue Indicators**: Ports with waiting ships display a dashed yellow line extending from the port, with animated ship icons moving toward the port.
+*   **Queue Labels**: When ships are waiting, a label shows `Q:X | Yh` where X is the number of ships in queue and Y is the estimated wait time in hours.
+*   **Default Configuration**: Each port has 2 docking slots by default. Queue and wait times are calculated automatically based on current traffic.
+*   **Demo Data**: Singapore is pre-seeded with a demo queue (2 waiting ships, ~8 hour wait) to showcase the visualization feature.
+
+**Note**: The ports.txt file format remains unchanged. Queue management is handled dynamically at runtime without requiring schema modifications.
 
 ---
 
