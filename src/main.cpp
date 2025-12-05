@@ -1321,11 +1321,17 @@ void spawnShip(Journey& journey) {
     ship->currentPortIndex = ship->originIndex;
     ship->nextDepartureMin = ship->departureTimeMin;
     
-    // Ship starts at origin port already docked, waiting for departure time
-    // Since the ship is already at the origin port (not arriving), it should be DOCKED
-    // directly rather than joining the queue. We increment inServiceCount to track the dock slot usage.
-    ports[ship->originIndex].inServiceCount++;
-    ship->state = DOCKED;
+    // Ship starts at origin port, attempting to dock immediately
+    // Check if dock slot is available
+    if (ports[ship->originIndex].inServiceCount < ports[ship->originIndex].dockSlots) {
+        // Dock slot available - ship starts DOCKED, waiting for departure time
+        ports[ship->originIndex].inServiceCount++;
+        ship->state = DOCKED;
+    } else {
+        // All dock slots occupied - ship joins queue
+        shipArrival(ports[ship->originIndex]);
+        ship->state = WAITING_QUEUE;
+    }
     
     // Log ship booking/spawn with detailed timing information
     char logMsg[200];
