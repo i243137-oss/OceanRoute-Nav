@@ -127,13 +127,21 @@ bool* finalPathPorts = nullptr;
 float explorationProgress = 0.0f;
 bool showingDijkstra = false;
 
+// Enhanced Color Palette for better visual hierarchy
 sf::Color COL_BG_DARK(30, 30, 35);
 sf::Color COL_ACCENT(0, 180, 255); 
 sf::Color COL_BTN_HOVER(0, 200, 255);
+sf::Color COL_BTN_ACTIVE(0, 220, 255);
 sf::Color COL_BTN_IDLE(50, 50, 60);
 sf::Color COL_TEXT_WHITE(240, 240, 240);
+sf::Color COL_TEXT_MUTED(180, 180, 180);
 sf::Color COL_INPUT_BG(255, 255, 255);
 sf::Color COL_INPUT_FOCUS(200, 230, 255);
+sf::Color COL_INPUT_PLACEHOLDER(150, 150, 150);
+sf::Color COL_SEPARATOR(70, 70, 75);
+sf::Color COL_SECTION_HEADER(0, 180, 255);
+sf::Color COL_STATUS_SUCCESS(100, 255, 100);
+sf::Color COL_STATUS_WARNING(255, 200, 100);
 
 // Route colors for multi-route visualization
 // Note: Array size matches MAX_ROUTES_TO_DISPLAY (5 colors for 5 max routes)
@@ -209,6 +217,7 @@ struct Button {
     sf::RectangleShape shape;
     sf::Text label;
     bool isHovered = false;
+    bool isPressed = false;
 
     void init(float x, float y, float w, float h, const char* text, sf::Font& font) {
         shape.setPosition(x, y);
@@ -224,16 +233,29 @@ struct Button {
         label.setPosition(x + w/2.0f, y + h/2.0f);
     }
 
-    void update(sf::Vector2i mousePos) {
-        if (shape.getGlobalBounds().contains((float)mousePos.x, (float)mousePos.y)) {
+    void update(sf::Vector2i mousePos, bool mousePressed = false) {
+        bool contains = shape.getGlobalBounds().contains((float)mousePos.x, (float)mousePos.y);
+        
+        if (contains && mousePressed) {
+            // Active/pressed state
+            shape.setFillColor(COL_BTN_ACTIVE);
+            shape.setOutlineColor(COL_ACCENT);
+            shape.setOutlineThickness(2);
+            isHovered = true;
+            isPressed = true;
+        } else if (contains) {
+            // Hover state
             shape.setFillColor(COL_BTN_HOVER);
             shape.setOutlineColor(sf::Color::White);
             shape.setOutlineThickness(1);
             isHovered = true;
+            isPressed = false;
         } else {
+            // Idle state
             shape.setFillColor(COL_BTN_IDLE);
             shape.setOutlineThickness(0);
             isHovered = false;
+            isPressed = false;
         }
     }
 
@@ -250,9 +272,11 @@ struct Button {
 struct InputBox {
     sf::RectangleShape shape;
     sf::Text displayText;
+    sf::Text placeholderText;
     bool isFocused = false;
+    char placeholder[50];
 
-    void init(float x, float y, float w, float h, sf::Font& font) {
+    void init(float x, float y, float w, float h, sf::Font& font, const char* placeholderStr = "") {
         shape.setPosition(x, y);
         shape.setSize(sf::Vector2f(w, h));
         shape.setFillColor(COL_INPUT_BG);
@@ -261,6 +285,14 @@ struct InputBox {
         displayText.setCharacterSize(14);
         displayText.setFillColor(sf::Color::Black);
         displayText.setPosition(x + 5, y + 5);
+        
+        // Setup placeholder
+        strcpy(placeholder, placeholderStr);
+        placeholderText.setFont(font);
+        placeholderText.setCharacterSize(14);
+        placeholderText.setFillColor(COL_INPUT_PLACEHOLDER);
+        placeholderText.setString(placeholderStr);
+        placeholderText.setPosition(x + 5, y + 5);
     }
 
     void update(const char* content, bool focus) {
@@ -270,14 +302,20 @@ struct InputBox {
             shape.setOutlineThickness(2);
             shape.setFillColor(COL_INPUT_FOCUS);
         } else {
-            shape.setOutlineThickness(0);
+            shape.setOutlineThickness(1);
+            shape.setOutlineColor(COL_SEPARATOR);
             shape.setFillColor(COL_INPUT_BG);
         }
     }
 
     void draw(sf::RenderWindow& window) {
         window.draw(shape);
-        window.draw(displayText);
+        // Show placeholder if input is empty and not focused
+        if (strlen(displayText.getString().toAnsiString().c_str()) == 0 && !isFocused && strlen(placeholder) > 0) {
+            window.draw(placeholderText);
+        } else {
+            window.draw(displayText);
+        }
     }
     
     bool isClicked(sf::Vector2i mousePos) {
@@ -847,27 +885,155 @@ void runGraphics() {
     sf::RectangleShape sidebar(sf::Vector2f(SIDEBAR_WIDTH, 1024.0f));
     sidebar.setFillColor(COL_BG_DARK); 
     
-    InputBox dateInput; dateInput.init(20, 200, 300, 35, font);
-    InputBox companyInput; companyInput.init(20, 520, 300, 28, font);
-    InputBox avoidPortInput; avoidPortInput.init(20, 570, 300, 28, font);
+    // Enhanced UI Layout with better spacing and sections
+    // Section 1: Port Selection (Top)
+    float section1Y = 20;
+    
+    // Section 2: Date Input
+    float section2Y = 165;
+    
+    // Section 3: Action Buttons
+    float section3Y = 240;
+    
+    // Section 4: Status Display
+    float section4Y = 430;
+    
+    // Section 5: Preferences (collapsible)
+    float section5Y = 490;
+    
+    // Section 6: Queue Status Legend
+    float section6Y = 670;
+    
+    InputBox dateInput; 
+    dateInput.init(20, section2Y + 35, 300, 35, font, "DD/MM/YYYY");
+    
+    InputBox companyInput; 
+    companyInput.init(20, section5Y + 55, 300, 28, font, "e.g., Maersk, MSC");
+    
+    InputBox avoidPortInput; 
+    avoidPortInput.init(20, section5Y + 105, 300, 28, font, "e.g., Dubai, Mumbai");
     
     Button btnSearch, btnDijkstra, btnBook, btnClear;
-    btnSearch.init(20, 250, 300, 40, "Find Routes (Date)", font);
-    btnDijkstra.init(20, 295, 300, 40, "Find Cheapest Route", font);
-    btnBook.init(20, 340, 300, 40, "Book Route (All)", font);
-    btnClear.init(20, 385, 300, 40, "Reset", font);
+    btnSearch.init(20, section3Y, 145, 40, "Find Routes", font);
+    btnDijkstra.init(175, section3Y, 145, 40, "Cheapest Route", font);
+    btnBook.init(20, section3Y + 50, 145, 40, "Book All Routes", font);
+    btnClear.init(175, section3Y + 50, 145, 40, "Reset", font);
     
     Button btnPreferences, btnApplyPrefs;
-    btnPreferences.init(20, 430, 300, 30, "Preferences", font);
-    btnApplyPrefs.init(20, 620, 300, 30, "Apply Filters", font);
+    btnPreferences.init(20, section4Y + 45, 300, 35, "Toggle Filters", font);
+    btnApplyPrefs.init(20, section5Y + 145, 300, 30, "Apply Filters", font);
 
-    sf::Text txtStart("From: None", font, 16); txtStart.setPosition(20, 80);
-    sf::Text txtEnd("To:   None", font, 16); txtEnd.setPosition(20, 120);
-    sf::Text txtStatus(statusMessage, font, 14); txtStatus.setPosition(20, 440); txtStatus.setFillColor(sf::Color::Yellow);
-    sf::Text txtDetails(pathDetails, font, 12); txtDetails.setPosition(20, 470); txtDetails.setFillColor(sf::Color::Cyan);
-    sf::Text txtPrefTitle("Filter Preferences", font, 12); txtPrefTitle.setPosition(20, 495); txtPrefTitle.setFillColor(sf::Color::Cyan);
-    sf::Text txtCompanyLabel("Company (comma-separated):", font, 10); txtCompanyLabel.setPosition(20, 505); txtCompanyLabel.setFillColor(sf::Color::White);
-    sf::Text txtAvoidLabel("Avoid Ports (comma-separated):", font, 10); txtAvoidLabel.setPosition(20, 555); txtAvoidLabel.setFillColor(sf::Color::White);
+    // Section Headers and Labels with improved visual hierarchy
+    sf::Text txtSectionPortSelect("PORT SELECTION", font, 12); 
+    txtSectionPortSelect.setPosition(20, section1Y);
+    txtSectionPortSelect.setFillColor(COL_SECTION_HEADER);
+    txtSectionPortSelect.setStyle(sf::Text::Bold);
+    
+    sf::Text txtStart("From: None", font, 15); 
+    txtStart.setPosition(20, section1Y + 25);
+    txtStart.setFillColor(COL_TEXT_WHITE);
+    
+    sf::Text txtEnd("To:   None", font, 15); 
+    txtEnd.setPosition(20, section1Y + 55);
+    txtEnd.setFillColor(COL_TEXT_WHITE);
+    
+    sf::Text txtHintPortSelect("Left-click: Start | Right-click: End", font, 10);
+    txtHintPortSelect.setPosition(20, section1Y + 85);
+    txtHintPortSelect.setFillColor(COL_TEXT_MUTED);
+    
+    // Date Section
+    sf::Text txtSectionDate("DEPARTURE DATE", font, 12);
+    txtSectionDate.setPosition(20, section2Y);
+    txtSectionDate.setFillColor(COL_SECTION_HEADER);
+    txtSectionDate.setStyle(sf::Text::Bold);
+    
+    sf::Text txtDateLabel("Select preferred departure date:", font, 10);
+    txtDateLabel.setPosition(20, section2Y + 20);
+    txtDateLabel.setFillColor(COL_TEXT_MUTED);
+    
+    // Actions Section
+    sf::Text txtSectionActions("SEARCH OPTIONS", font, 12);
+    txtSectionActions.setPosition(20, section3Y - 20);
+    txtSectionActions.setFillColor(COL_SECTION_HEADER);
+    txtSectionActions.setStyle(sf::Text::Bold);
+    
+    // Status Section
+    sf::Text txtSectionStatus("STATUS", font, 12);
+    txtSectionStatus.setPosition(20, section4Y);
+    txtSectionStatus.setFillColor(COL_SECTION_HEADER);
+    txtSectionStatus.setStyle(sf::Text::Bold);
+    
+    sf::Text txtStatus(statusMessage, font, 14); 
+    txtStatus.setPosition(20, section4Y + 20); 
+    txtStatus.setFillColor(COL_STATUS_SUCCESS);
+    
+    sf::Text txtDetails(pathDetails, font, 12); 
+    txtDetails.setPosition(20, section4Y + 40); 
+    txtDetails.setFillColor(sf::Color::Cyan);
+    
+    // Preferences Section
+    sf::Text txtPrefTitle("FILTER PREFERENCES", font, 12); 
+    txtPrefTitle.setPosition(20, section5Y); 
+    txtPrefTitle.setFillColor(COL_SECTION_HEADER);
+    txtPrefTitle.setStyle(sf::Text::Bold);
+    
+    sf::Text txtCompanyLabel("Preferred Companies:", font, 11); 
+    txtCompanyLabel.setPosition(20, section5Y + 40); 
+    txtCompanyLabel.setFillColor(COL_TEXT_WHITE);
+    
+    sf::Text txtAvoidLabel("Ports to Avoid:", font, 11); 
+    txtAvoidLabel.setPosition(20, section5Y + 90); 
+    txtAvoidLabel.setFillColor(COL_TEXT_WHITE);
+    
+    // Queue Status Legend Section
+    sf::Text txtSectionQueue("QUEUE STATUS LEGEND", font, 12);
+    txtSectionQueue.setPosition(20, section6Y);
+    txtSectionQueue.setFillColor(COL_SECTION_HEADER);
+    txtSectionQueue.setStyle(sf::Text::Bold);
+    
+    sf::Text txtQueueLegend1("Dashed Line: Ships in queue", font, 10);
+    txtQueueLegend1.setPosition(20, section6Y + 20);
+    txtQueueLegend1.setFillColor(COL_TEXT_WHITE);
+    
+    sf::Text txtQueueLegend2("Q:n = Queue size (n ships)", font, 10);
+    txtQueueLegend2.setPosition(20, section6Y + 38);
+    txtQueueLegend2.setFillColor(COL_TEXT_WHITE);
+    
+    sf::Text txtQueueLegend3("Wait time shown in hours/minutes", font, 10);
+    txtQueueLegend3.setPosition(20, section6Y + 56);
+    txtQueueLegend3.setFillColor(COL_TEXT_WHITE);
+    
+    // Visual queue indicator example
+    sf::CircleShape queueExampleDot(3.0f);
+    queueExampleDot.setFillColor(sf::Color(255, 200, 50, 220));
+    queueExampleDot.setOutlineThickness(1.0f);
+    queueExampleDot.setOutlineColor(sf::Color(180, 150, 0, 220));
+    queueExampleDot.setPosition(20, section6Y + 80);
+    
+    sf::Text txtQueueLegend4("= Waiting ship moving to port", font, 10);
+    txtQueueLegend4.setPosition(35, section6Y + 74);
+    txtQueueLegend4.setFillColor(COL_TEXT_WHITE);
+    
+    // Separator lines for visual grouping
+    sf::RectangleShape separator1(sf::Vector2f(300, 1));
+    separator1.setPosition(20, section2Y - 10);
+    separator1.setFillColor(COL_SEPARATOR);
+    
+    sf::RectangleShape separator2(sf::Vector2f(300, 1));
+    separator2.setPosition(20, section3Y - 30);
+    separator2.setFillColor(COL_SEPARATOR);
+    
+    sf::RectangleShape separator3(sf::Vector2f(300, 1));
+    separator3.setPosition(20, section4Y - 10);
+    separator3.setFillColor(COL_SEPARATOR);
+    
+    sf::RectangleShape separator4(sf::Vector2f(300, 1));
+    separator4.setPosition(20, section5Y - 10);
+    separator4.setFillColor(COL_SEPARATOR);
+    
+    sf::RectangleShape separator5(sf::Vector2f(300, 1));
+    separator5.setPosition(20, section6Y - 10);
+    separator5.setFillColor(COL_SEPARATOR);
     
     sf::RectangleShape tooltipBox(sf::Vector2f(320, 140));
     tooltipBox.setFillColor(sf::Color(0, 0, 0, 220));
@@ -1023,8 +1189,14 @@ void runGraphics() {
         }
 
         sf::Vector2i mPos = sf::Mouse::getPosition(window);
-        btnSearch.update(mPos); btnDijkstra.update(mPos); btnBook.update(mPos); btnClear.update(mPos);
-        btnPreferences.update(mPos); btnApplyPrefs.update(mPos);
+        bool mousePressed = sf::Mouse::isButtonPressed(sf::Mouse::Left);
+        
+        btnSearch.update(mPos, mousePressed); 
+        btnDijkstra.update(mPos, mousePressed); 
+        btnBook.update(mPos, mousePressed); 
+        btnClear.update(mPos, mousePressed);
+        btnPreferences.update(mPos, mousePressed); 
+        btnApplyPrefs.update(mPos, mousePressed);
         dateInput.update(inputDateString, isTypingDate);
         companyInput.update(tempCompany, focusCompany);
         avoidPortInput.update(tempAvoidPort, focusAvoidPort);
@@ -1287,12 +1459,43 @@ void runGraphics() {
 
         delete[] portInRoute;
 
+        // Draw sidebar and all UI elements with proper layering
         window.draw(sidebar);
-        window.draw(txtStart); window.draw(txtEnd);
+        
+        // Draw separators for visual grouping
+        window.draw(separator1);
+        window.draw(separator2);
+        window.draw(separator3);
+        window.draw(separator4);
+        window.draw(separator5);
+        
+        // Section 1: Port Selection
+        window.draw(txtSectionPortSelect);
+        window.draw(txtStart); 
+        window.draw(txtEnd);
+        window.draw(txtHintPortSelect);
+        
+        // Section 2: Date Input
+        window.draw(txtSectionDate);
+        window.draw(txtDateLabel);
         dateInput.draw(window);
-        btnSearch.draw(window); btnDijkstra.draw(window); btnBook.draw(window); btnClear.draw(window);
+        
+        // Section 3: Action Buttons
+        window.draw(txtSectionActions);
+        btnSearch.draw(window); 
+        btnDijkstra.draw(window); 
+        btnBook.draw(window); 
+        btnClear.draw(window);
+        
+        // Section 4: Status
+        window.draw(txtSectionStatus);
+        window.draw(txtStatus); 
+        window.draw(txtDetails);
+        
+        // Toggle Filters button
         btnPreferences.draw(window);
         
+        // Section 5: Preferences (if visible)
         if (showPreferencesPanel) {
             window.draw(txtPrefTitle);
             window.draw(txtCompanyLabel);
@@ -1302,7 +1505,13 @@ void runGraphics() {
             btnApplyPrefs.draw(window);
         }
         
-        window.draw(txtStatus); window.draw(txtDetails);
+        // Section 6: Queue Status Legend
+        window.draw(txtSectionQueue);
+        window.draw(txtQueueLegend1);
+        window.draw(txtQueueLegend2);
+        window.draw(txtQueueLegend3);
+        window.draw(queueExampleDot);
+        window.draw(txtQueueLegend4);
         window.display();
     }
 }
