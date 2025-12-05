@@ -9,6 +9,29 @@
 using namespace std;
 
 // ==========================================
+// 0. Preference System Structures
+// ==========================================
+struct UserPreferences {
+    char preferredCompanies[5][50];
+    int preferredCompanyCount;
+    
+    char avoidedPorts[10][50];
+    int avoidedPortCount;
+    
+    int maxVoyageTimeMinutes;
+    bool usePreferences;
+    
+    UserPreferences() {
+        preferredCompanyCount = 0;
+        avoidedPortCount = 0;
+        maxVoyageTimeMinutes = 10080; // 7 days default
+        usePreferences = false;
+    }
+};
+
+UserPreferences userPrefs;
+
+// ==========================================
 // 0. Custom Helper Functions
 // ==========================================
 void intToString(int val, char* buffer) {
@@ -51,6 +74,7 @@ float getDistanceToLine(sf::Vector2f point, sf::Vector2f start, sf::Vector2f end
     return sqrt(dx * dx + dy * dy);
 }
 
+
 // ==========================================
 // 1. Global Data & Constants
 // ==========================================
@@ -66,6 +90,13 @@ char inputDateString[20] = "20/12/2024";
 char statusMessage[100] = "Ready to navigate.";
 char pathDetails[100] = ""; 
 bool isTypingDate = false;
+bool showPreferencesPanel = false;
+
+// Algorithm visualization tracking
+bool* exploredPorts = nullptr;
+bool* finalPathPorts = nullptr;
+float explorationProgress = 0.0f;
+bool showingDijkstra = false;
 
 sf::Color COL_BG_DARK(30, 30, 35);
 sf::Color COL_ACCENT(0, 180, 255); 
@@ -74,6 +105,33 @@ sf::Color COL_BTN_IDLE(50, 50, 60);
 sf::Color COL_TEXT_WHITE(240, 240, 240);
 sf::Color COL_INPUT_BG(255, 255, 255);
 sf::Color COL_INPUT_FOCUS(200, 230, 255);
+
+bool isPortAvoided(int portIndex) {
+    if (!userPrefs.usePreferences) return false;
+    for (int i = 0; i < userPrefs.avoidedPortCount; i++) {
+        if (strcmp(userPrefs.avoidedPorts[i], ports[portIndex].name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool isCompanyPreferred(const char* company) {
+    if (!userPrefs.usePreferences || userPrefs.preferredCompanyCount == 0) return true;
+    for (int i = 0; i < userPrefs.preferredCompanyCount; i++) {
+        if (strcmp(userPrefs.preferredCompanies[i], company) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool meetsTimeLimit(long long departureTime, long long arrivalTime) {
+    if (!userPrefs.usePreferences) return true;
+    long long voyageTime = arrivalTime - departureTime;
+    if (voyageTime < 0) voyageTime += 1440; // Handle day boundary
+    return voyageTime <= userPrefs.maxVoyageTimeMinutes;
+}
 
 struct Journey {
     Route* legs[10];
@@ -248,7 +306,9 @@ void loadData() {
     totalPorts = countFileLines("ports.txt");
     if(totalPorts == 0) { cout << "Error: ports.txt empty!" << endl; return; }
     ports = new Port[totalPorts];
-    visited = new bool[totalPorts]; 
+    visited = new bool[totalPorts];
+    exploredPorts = new bool[totalPorts];
+    finalPathPorts = new bool[totalPorts];
 
     ifstream fp("ports.txt");
     if(fp.is_open()) {
@@ -264,8 +324,18 @@ void loadData() {
     
     ifstream fr("Routes.txt");
     if(fr.is_open()) {
-        char o[50], d[50], co[50], sk; int c; Date dt; Time dep, arr;
-        while(fr >> o >> d >> dt.day >> sk >> dt.month >> sk >> dt.year >> dep.hour >> sk >> dep.minute >> arr.hour >> sk >> arr.minute >> c >> co) {
+        char o[50], d[50], co[50];
+        char dateStr[20], depStr[10], arrStr[10];
+        int c;
+        
+        while(fr >> o >> d >> dateStr >> depStr >> arrStr >> c >> co) {
+            Date dt;
+            sscanf(dateStr, "%d/%d/%d", &dt.day, &dt.month, &dt.year);
+            
+            Time dep, arr;
+            sscanf(depStr, "%d/%d", &dep.hour, &dep.minute);
+            sscanf(arrStr, "%d/%d", &arr.hour, &arr.minute);
+            
             int u = getPortIndex(o), v = getPortIndex(d);
             if(u!=-1 && v!=-1) {
                 Route* r = new Route;
@@ -283,7 +353,7 @@ void loadData() {
 void findScheduledRoutes(int u, int target, int depth, long long currentArrivalTime, int currentCost, Route* pathSoFar[]);
 
 // ==========================================
-// Dijkstra's Algorithm
+// Dijkstra's Algorithm with Preferences
 // ==========================================
 struct HeapNodeTime {
     int portIndex;
@@ -354,16 +424,28 @@ void initDijkstraData() {
         ports[i].parentIndex = -1;
         ports[i].visited = false;
     }
+    
+    for (int i = 0; i < totalPorts; i++) {
+        exploredPorts[i] = false;
+        finalPathPorts[i] = false;
+    }
 }
 
 void dijkstra_shortest_cost_scheduled(int source, int destination, Date userDate) {
     initDijkstraData();
     ports[source].minCost = 0;
+    exploredPorts[source] = true;
     MinHeapTime pq(totalPorts);
     pq.push(source, 0);
     
     Time startTime = {0, 0};
     long long userStartTime = getMinutes(userDate, startTime);
+    
+    // CRITICAL FIX: Separate array to track arrival times at each port
+    long long* arrivalTimes = new long long[totalPorts];
+    for (int i = 0; i < totalPorts; i++) {
+        arrivalTimes[i] = (i == source) ? userStartTime : LLONG_MAX;
+    }
     
     while (!pq.isEmpty()) {
         HeapNodeTime current = pq.extractMin();
@@ -373,29 +455,42 @@ void dijkstra_shortest_cost_scheduled(int source, int destination, Date userDate
         ports[u].visited = true;
         if (u == destination) break;
         
+        // Skip if port is avoided
+        if (isPortAvoided(u) && u != source && u != destination) continue;
+        
         Route* r = ports[u].headRoute;
         while (r != nullptr) {
             int v = r->destinationIndex;
-            long long departureTime = getMinutes(r->voyageDate, r->departureTime);
-            long long minDepartureTime = (u == source) ? userStartTime : ports[u].minCost;
             
-            if (departureTime >= minDepartureTime + 120) {
-                long long arrivalTime = getMinutes(r->voyageDate, r->arrivalTime);
+            // Apply preference filters
+            if (!isPortAvoided(v) && isCompanyPreferred(r->company)) {
+                long long departureTime = getMinutes(r->voyageDate, r->departureTime);
+                
+                // FIX: Use arrivalTimes[u] + 120 minute layover instead of ports[u].minCost
+                long long minDepartureTime = (u == source) ? userStartTime : arrivalTimes[u] + 120;
+                
+                long long routeArrivalTime = getMinutes(r->voyageDate, r->arrivalTime);
                 if (r->arrivalTime.hour < r->departureTime.hour) 
-                    arrivalTime += 1440;
+                    routeArrivalTime += 1440;
                 
-                int edgeCost = r->cost + ports[v].dailyCharge;
-                long long newCost = ports[u].minCost + edgeCost;
-                
-                if (!ports[v].visited && newCost < ports[v].minCost) {
-                    ports[v].minCost = newCost;
-                    ports[v].parentIndex = u;
-                    pq.push(v, newCost);
+                if (departureTime >= minDepartureTime && meetsTimeLimit(departureTime, routeArrivalTime)) {
+                    int edgeCost = r->cost + ports[v].dailyCharge;
+                    long long newCost = ports[u].minCost + edgeCost;
+                    
+                    if (!ports[v].visited && newCost < ports[v].minCost) {
+                        ports[v].minCost = newCost;
+                        ports[v].parentIndex = u;
+                        arrivalTimes[v] = routeArrivalTime; // FIX: Store actual arrival time
+                        exploredPorts[v] = true;
+                        pq.push(v, newCost);
+                    }
                 }
             }
             r = r->next;
         }
     }
+    
+    delete[] arrivalTimes; // Clean up
 }
 
 void reconstructDijkstraPath(int source, int destination, Journey& result) {
@@ -412,6 +507,7 @@ void reconstructDijkstraPath(int source, int destination, Journey& result) {
     
     while (current != -1 && pathLength < 10) {
         pathStack.push(current);
+        finalPathPorts[current] = true;
         current = ports[current].parentIndex;
         pathLength++;
     }
@@ -457,14 +553,17 @@ void runDijkstraSearch(int start, int end, Date userDate) {
     }
     
     foundJourneysCount = 0;
-    strcpy(statusMessage, "Computing...");
+    strcpy(statusMessage, "Computing optimal route...");
     showJourneys = false;
+    showingDijkstra = true;
+    explorationProgress = 0.0f;
     
     dijkstra_shortest_cost_scheduled(start, end, userDate);
     
     if (ports[end].minCost == 2147483647) {
-        strcpy(statusMessage, "No optimal route.");
-        strcpy(pathDetails, "Try different ports.");
+        strcpy(statusMessage, "No route meets preferences.");
+        strcpy(pathDetails, "Adjust filters & retry.");
+        showingDijkstra = false;
         return;
     }
     
@@ -476,7 +575,7 @@ void runDijkstraSearch(int start, int end, Date userDate) {
         foundJourneys[foundJourneysCount] = optimalRoute;
         foundJourneysCount++;
         
-        strcpy(statusMessage, "Cheapest route found!");
+        strcpy(statusMessage, "Optimal route found!");
         char buff[50];
         strcpy(pathDetails, "Cost: $");
         intToString(ports[end].minCost, buff);
@@ -485,16 +584,23 @@ void runDijkstraSearch(int start, int end, Date userDate) {
         intToString(optimalRoute.legCount, buff);
         strcat(pathDetails, buff);
         
+        if (userPrefs.usePreferences) {
+            strcat(pathDetails, " [Filtered]");
+        }
+        
         bookingMode = 2;
         showJourneys = true;
+        explorationProgress = 1.0f;
     }
 }
 
 // ==========================================
-// DFS Search
+// DFS Search with Preferences
 // ==========================================
 void findScheduledRoutes(int u, int target, int depth, long long currentArrivalTime, int currentCost, Route* pathSoFar[]) {
     if (depth >= 10 || foundJourneysCount >= 50) return;
+    
+    if (isPortAvoided(u) && u != target && depth > 0) return;
 
     if (u == target) {
         foundJourneys[foundJourneysCount].legCount = depth;
@@ -514,16 +620,15 @@ void findScheduledRoutes(int u, int target, int depth, long long currentArrivalT
     
     while (r != nullptr) {
         int v = r->destinationIndex;
-        if (!visited[v]) {
+        if (!visited[v] && !isPortAvoided(v) && isCompanyPreferred(r->company)) {
             long long departureTime = getMinutes(r->voyageDate, r->departureTime);
             long long requiredDepartureTime = currentArrivalTime + 120;
+            long long arrivalTime = getMinutes(r->voyageDate, r->arrivalTime);
             
-            if (departureTime >= requiredDepartureTime) {
+            if (arrivalTime < departureTime) arrivalTime += 1440;
+            
+            if (departureTime >= requiredDepartureTime && meetsTimeLimit(departureTime, arrivalTime)) {
                 pathSoFar[depth] = r;
-                long long arrivalTime = getMinutes(r->voyageDate, r->arrivalTime);
-                if (r->arrivalTime.hour < r->departureTime.hour) {
-                    arrivalTime += 1440;
-                }
                 findScheduledRoutes(v, target, depth + 1, arrivalTime, currentCost + r->cost, pathSoFar);
             } 
         }
@@ -540,6 +645,7 @@ void runSearch(int start, int end, Date userDate) {
     for(int i=0; i<totalPorts; i++) visited[i] = false;
     strcpy(statusMessage, "Searching...");
     showJourneys = false;
+    showingDijkstra = false;
 
     Route* tempPath[10];
     Time startTime = {0, 0};
@@ -579,6 +685,7 @@ void findAllAvailableRoutes(int start, int end, Date userDate) {
     for(int i=0; i<totalPorts; i++) visited[i] = false;
     strcpy(statusMessage, "Finding routes...");
     showJourneys = false;
+    showingDijkstra = false;
 
     Route* tempPath[10];
     Time startTime = {0, 0};
@@ -639,17 +746,26 @@ void runGraphics() {
     sidebar.setFillColor(COL_BG_DARK); 
     
     InputBox dateInput; dateInput.init(20, 200, 300, 35, font);
+    InputBox companyInput; companyInput.init(20, 520, 300, 28, font);
+    InputBox avoidPortInput; avoidPortInput.init(20, 570, 300, 28, font);
     
     Button btnSearch, btnDijkstra, btnBook, btnClear;
     btnSearch.init(20, 250, 300, 40, "Find Routes (Date)", font);
     btnDijkstra.init(20, 295, 300, 40, "Find Cheapest Route", font);
     btnBook.init(20, 340, 300, 40, "Book Route (All)", font);
     btnClear.init(20, 385, 300, 40, "Reset", font);
+    
+    Button btnPreferences, btnApplyPrefs;
+    btnPreferences.init(20, 430, 300, 30, "Preferences", font);
+    btnApplyPrefs.init(20, 620, 300, 30, "Apply Filters", font);
 
     sf::Text txtStart("From: None", font, 16); txtStart.setPosition(20, 80);
     sf::Text txtEnd("To:   None", font, 16); txtEnd.setPosition(20, 120);
     sf::Text txtStatus(statusMessage, font, 14); txtStatus.setPosition(20, 440); txtStatus.setFillColor(sf::Color::Yellow);
     sf::Text txtDetails(pathDetails, font, 12); txtDetails.setPosition(20, 470); txtDetails.setFillColor(sf::Color::Cyan);
+    sf::Text txtPrefTitle("Filter Preferences", font, 12); txtPrefTitle.setPosition(20, 495); txtPrefTitle.setFillColor(sf::Color::Cyan);
+    sf::Text txtCompanyLabel("Company (e.g. Maersk):", font, 10); txtCompanyLabel.setPosition(20, 505); txtCompanyLabel.setFillColor(sf::Color::White);
+    sf::Text txtAvoidLabel("Avoid Port:", font, 10); txtAvoidLabel.setPosition(20, 555); txtAvoidLabel.setFillColor(sf::Color::White);
     
     sf::RectangleShape tooltipBox(sf::Vector2f(320, 140));
     tooltipBox.setFillColor(sf::Color(0, 0, 0, 220));
@@ -657,6 +773,11 @@ void runGraphics() {
     sf::Text tooltipText("", font, 12); tooltipText.setFillColor(sf::Color::White);
 
     sf::Clock animClock;
+    
+    char tempCompany[50] = "";
+    char tempAvoidPort[50] = "";
+    bool focusCompany = false;
+    bool focusAvoidPort = false;
 
     while(window.isOpen()) {
         sf::Event event;
@@ -667,11 +788,23 @@ void runGraphics() {
                 if(event.text.unicode == 8) popBack(inputDateString);
                 else if(event.text.unicode < 128) appendChar(inputDateString, (char)event.text.unicode, 20);
             }
+            
+            if(event.type == sf::Event::TextEntered && focusCompany) {
+                if(event.text.unicode == 8) popBack(tempCompany);
+                else if(event.text.unicode < 128) appendChar(tempCompany, (char)event.text.unicode, 50);
+            }
+            
+            if(event.type == sf::Event::TextEntered && focusAvoidPort) {
+                if(event.text.unicode == 8) popBack(tempAvoidPort);
+                else if(event.text.unicode < 128) appendChar(tempAvoidPort, (char)event.text.unicode, 50);
+            }
 
             if(event.type == sf::Event::MouseButtonPressed) {
                 sf::Vector2i pos = sf::Mouse::getPosition(window);
                 
                 if(dateInput.isClicked(pos)) isTypingDate = true; else isTypingDate = false;
+                if(companyInput.isClicked(pos)) focusCompany = true; else focusCompany = false;
+                if(avoidPortInput.isClicked(pos)) focusAvoidPort = true; else focusAvoidPort = false;
 
                 if(pos.x > SIDEBAR_WIDTH) { 
                     for(int i=0; i<totalPorts; i++) {
@@ -693,16 +826,62 @@ void runGraphics() {
                 if(btnClear.isClicked(pos)) {
                     selectedStart = -1; selectedEnd = -1; showJourneys = false;
                     bookingMode = 0;
+                    showingDijkstra = false;
+                    
+                    userPrefs.usePreferences = false;
+                    userPrefs.preferredCompanyCount = 0;
+                    userPrefs.avoidedPortCount = 0;
+                    tempCompany[0] = '\0';
+                    tempAvoidPort[0] = '\0';
+                    
                     strcpy(statusMessage, "Ready."); strcpy(pathDetails, ""); strcpy(inputDateString, "20/12/2024");
                     txtStart.setString("From: None"); txtEnd.setString("To:   None");
+                }
+                
+                if(btnPreferences.isClicked(pos)) {
+                    showPreferencesPanel = !showPreferencesPanel;
+                }
+                
+                if(btnApplyPrefs.isClicked(pos)) {
+                    userPrefs.preferredCompanyCount = 0;
+                    userPrefs.avoidedPortCount = 0;
+                    
+                    if (strlen(tempCompany) > 0 || strlen(tempAvoidPort) > 0) {
+                        userPrefs.usePreferences = true;
+                        
+                        if (strlen(tempCompany) > 0) {
+                            strcpy(userPrefs.preferredCompanies[0], tempCompany);
+                            userPrefs.preferredCompanyCount = 1;
+                        }
+                        
+                        if (strlen(tempAvoidPort) > 0) {
+                            strcpy(userPrefs.avoidedPorts[0], tempAvoidPort);
+                            userPrefs.avoidedPortCount = 1;
+                        }
+                        
+                        strcpy(statusMessage, "Filters applied!");
+                    } else {
+                        userPrefs.usePreferences = false;
+                        strcpy(statusMessage, "Filters cleared!");
+                    }
+                    
+                    showPreferencesPanel = false;
                 }
             }
         }
 
         sf::Vector2i mPos = sf::Mouse::getPosition(window);
         btnSearch.update(mPos); btnDijkstra.update(mPos); btnBook.update(mPos); btnClear.update(mPos);
+        btnPreferences.update(mPos); btnApplyPrefs.update(mPos);
         dateInput.update(inputDateString, isTypingDate);
+        companyInput.update(tempCompany, focusCompany);
+        avoidPortInput.update(tempAvoidPort, focusAvoidPort);
         txtStatus.setString(statusMessage); txtDetails.setString(pathDetails);
+        
+        if (showingDijkstra && explorationProgress < 1.0f) {
+            explorationProgress += 0.02f;
+            if (explorationProgress > 1.0f) explorationProgress = 1.0f;
+        }
 
         window.clear(sf::Color(30, 30, 30));
         window.draw(sMap);
@@ -710,12 +889,10 @@ void runGraphics() {
         bool hoverFound = false;
         float time = animClock.getElapsedTime().asSeconds();
 
-        // Track which ports are involved in routes
         bool* portInRoute = new bool[totalPorts];
         for(int i=0; i<totalPorts; i++) portInRoute[i] = false;
 
         if (showJourneys) {
-            // Mark all ports involved in displayed journeys
             for(int i=0; i<foundJourneysCount; i++) {
                 Journey& j = foundJourneys[i];
                 if (selectedStart != -1) portInRoute[selectedStart] = true;
@@ -808,11 +985,9 @@ void runGraphics() {
             }
         }
 
-        // Draw port markers with hover detection
         for(int i=0; i<totalPorts; i++) {
             bool isHovering = false;
             
-            // Check if mouse is hovering over this port
             if (abs(mPos.x - ports[i].x) < 20 && abs(mPos.y - ports[i].y) < 20) {
                 isHovering = true;
             }
@@ -821,8 +996,19 @@ void runGraphics() {
                 sf::Sprite p(tPin); 
                 p.setPosition(ports[i].x, ports[i].y);
                 float s = 40.0f/tPin.getSize().y;
+                
                 if (i==selectedStart) { p.setColor(sf::Color::Green); s*=1.3f; }
                 else if (i==selectedEnd) { p.setColor(sf::Color::Red); s*=1.3f; }
+                else if (isPortAvoided(i)) { p.setColor(sf::Color(200, 0, 0)); s*=1.1f; }
+                else if (finalPathPorts[i] && showingDijkstra) { 
+                    p.setColor(sf::Color(0, 255, 100));
+                    s*=1.25f; 
+                }
+                else if (exploredPorts[i] && showingDijkstra) { 
+                    p.setColor(sf::Color(100, 150, 255));
+                    float pulse = sin(time * 3.0f) * 0.1f + 0.9f;
+                    s *= pulse;
+                }
                 else if (isHovering) { p.setColor(sf::Color::Yellow); s*=1.2f; }
                 else p.setColor(sf::Color::White);
                 
@@ -831,7 +1017,6 @@ void runGraphics() {
                 window.draw(p);
             }
             
-            // Draw port name labels only for ports in route
             if (showJourneys && portInRoute[i]) {
                 sf::Text portLabel(ports[i].name, font, 11);
                 portLabel.setFillColor(sf::Color::White);
@@ -845,7 +1030,6 @@ void runGraphics() {
                 window.draw(portLabel);
             }
             
-            // Show port name on hover (even if not in route)
             if (isHovering) {
                 sf::Text hoverLabel(ports[i].name, font, 13);
                 hoverLabel.setFillColor(sf::Color::Yellow);
@@ -867,6 +1051,17 @@ void runGraphics() {
         window.draw(txtStart); window.draw(txtEnd);
         dateInput.draw(window);
         btnSearch.draw(window); btnDijkstra.draw(window); btnBook.draw(window); btnClear.draw(window);
+        btnPreferences.draw(window);
+        
+        if (showPreferencesPanel) {
+            window.draw(txtPrefTitle);
+            window.draw(txtCompanyLabel);
+            companyInput.draw(window);
+            window.draw(txtAvoidLabel);
+            avoidPortInput.draw(window);
+            btnApplyPrefs.draw(window);
+        }
+        
         window.draw(txtStatus); window.draw(txtDetails);
         window.display();
     }
@@ -879,5 +1074,7 @@ int main() {
     
     if(ports) delete[] ports;
     if(visited) delete[] visited;
+    if(exploredPorts) delete[] exploredPorts;
+    if(finalPathPorts) delete[] finalPathPorts;
     return 0;
 }
