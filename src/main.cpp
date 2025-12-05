@@ -2294,8 +2294,13 @@ void runGraphics() {
         
         // Draw active ships in transit
         Ship* ship = activeShipsHead;
+        int travelingCount = 0;
+        int waitingCount = 0;
+        int dockedCount = 0;
+        
         while (ship != nullptr) {
             if (ship->state == TRAVELING) {
+                travelingCount++;
                 Route* currentLeg = ship->legs[ship->currentLegIndex];
                 int originIdx = (ship->currentLegIndex == 0) ? ship->originIndex : ship->legs[ship->currentLegIndex - 1]->destinationIndex;
                 int destIdx = currentLeg->destinationIndex;
@@ -2307,9 +2312,22 @@ void runGraphics() {
                 
                 if (totalTravelTime > 0 && elapsedTime >= 0) {
                     progress = (float)elapsedTime / (float)totalTravelTime;
-                    if (progress > 1.0f) progress = 1.0f;
-                    if (progress < 0.0f) progress = 0.0f;
+                    // Clamp progress to [0.0, 1.0] range for safety
+                    progress = std::max(0.0f, std::min(1.0f, progress));
                 }
+                
+                #if DEBUG_ROUTE_EVALUATION
+                // Debug: Log ship drawing (throttled to every 60 frames ~ 1 second at 60fps)
+                static int debugDrawCounter = 0;
+                if (debugDrawCounter++ % 60 == 0) {
+                    printf("[SHIP_DRAW] Ship #%d TRAVELING: progress=%.3f, time=%lld/%lld, pos=(%.1f,%.1f), origin=%s(%.1f,%.1f), dest=%s(%.1f,%.1f)\n",
+                           ship->shipId, progress, elapsedTime, totalTravelTime,
+                           ports[originIdx].x + (ports[destIdx].x - ports[originIdx].x) * progress,
+                           ports[originIdx].y + (ports[destIdx].y - ports[originIdx].y) * progress,
+                           ports[originIdx].name, ports[originIdx].x, ports[originIdx].y,
+                           ports[destIdx].name, ports[destIdx].x, ports[destIdx].y);
+                }
+                #endif
                 
                 // Interpolate position
                 float shipX = ports[originIdx].x + (ports[destIdx].x - ports[originIdx].x) * progress;
@@ -2324,6 +2342,9 @@ void runGraphics() {
                 shipShape.setPosition(shipX, shipY);
                 window.draw(shipShape);
             } else if (ship->state == WAITING_QUEUE || ship->state == DOCKED) {
+                if (ship->state == WAITING_QUEUE) waitingCount++;
+                if (ship->state == DOCKED) dockedCount++;
+                
                 // Draw ship waiting at port (near the port icon)
                 // Ships in queue appear slightly farther out than docked ships
                 float baseRadius = (ship->state == DOCKED) ? 20.0f : 30.0f;
@@ -2343,6 +2364,15 @@ void runGraphics() {
             }
             ship = ship->next;
         }
+        
+        #if DEBUG_ROUTE_EVALUATION
+        // Debug: Log ship state counts (throttled to every 60 frames ~ 1 second at 60fps)
+        static int debugStateCounter = 0;
+        if (debugStateCounter++ % 60 == 0 && (travelingCount > 0 || waitingCount > 0 || dockedCount > 0)) {
+            printf("[SHIP_STATES] TRAVELING=%d, WAITING=%d, DOCKED=%d (total=%d)\n",
+                   travelingCount, waitingCount, dockedCount, travelingCount + waitingCount + dockedCount);
+        }
+        #endif
 
         for(int i=0; i<totalPorts; i++) {
             bool isHovering = false;
