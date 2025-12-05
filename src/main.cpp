@@ -105,6 +105,7 @@ const float GLOW_OFFSET = 2.0f;
 const int MAX_QUEUE_SHIPS_DISPLAY = 3; // Maximum number of animated ships to show in queue visualization
 const int DEFAULT_DOCK_SLOTS = 1;      // Default number of docking slots per port (reduced to surface contention)
 const int MAX_PORTS = 100;             // Maximum number of ports supported
+const float SIM_SPEED_TO_MULTIPLIER = 60.0f; // Conversion factor: simSpeed (minutes/second) to speed multiplier (1x, 2x, etc.)
 
 // Demo queue data constants (used when ENABLE_DEMO_QUEUE_DATA is enabled)
 const int DEMO_QUEUE_COUNT = 2;        // Number of ships waiting in Singapore demo queue
@@ -134,9 +135,9 @@ bool showingDijkstra = false;
 // ==========================================
 Ship* activeShipsHead = nullptr;  // Linked list of active ships
 int nextShipId = 1;                // Unique ID counter for ships
-long long simTimeMinutes = 0;      // Current simulation time in absolute minutes
+long long simTimeMinutes = 0;      // Current simulation time in absolute minutes since epoch
 bool simPaused = false;            // Simulation auto-starts on launch (requirement)
-int simSpeed = SIM_SPEED_1X;       // Default speed: 1x (real-time simulation)
+int simSpeed = SIM_SPEED_1X;       // Simulation speed in minutes per real-time second (60 = 1x speed = 1 hour/second)
 sf::Clock simClock;                // Clock for tracking real time
 float simAccumulator = 0.0f;       // Accumulator for fractional minutes
 sf::Clock globalAnimClock;         // Global animation clock for logging
@@ -328,7 +329,7 @@ int getDaysInMonth(int month, int year) {
 void updateSimulatedTime(float deltaTime) {
     if (!timeSim.isPaused) {
         // Advance simulation time based on simSpeed
-        // simSpeed represents simulation minutes per real-time second
+        // simSpeed is in minutes per real-time second (e.g., 60 = 1x speed = 1 hour per real second)
         static float fractionalMinutes = 0.0f;
         fractionalMinutes += deltaTime * simSpeed;
         
@@ -1447,8 +1448,8 @@ void processSimulationTick() {
 void updateSimulationClock(float deltaTime) {
     if (simPaused) return;
     
-    // deltaTime is in seconds, simSpeed is the speed multiplier
-    // At 60x speed: 1 real second = 60 sim minutes
+    // deltaTime is in seconds, simSpeed is in minutes per real-time second
+    // At 60x speed (1x multiplier): 1 real second = 60 sim minutes = 1 sim hour
     // simSpeed directly represents simulation minutes per real-time second
     simAccumulator += deltaTime * simSpeed;
     
@@ -1902,9 +1903,9 @@ void runGraphics() {
                     }
                     
                     // Synchronize with simSpeed (used by ship state machine)
-                    // simSpeed represents simulation minutes per real-time second
+                    // simSpeed is in minutes per real-time second
                     // Convert from speed multiplier to minutes per second: 1x = 60 min/sec
-                    simSpeed = (int)(shipSim.simulationSpeed * 60.0f);
+                    simSpeed = (int)(shipSim.simulationSpeed * SIM_SPEED_TO_MULTIPLIER);
                     
                     // Update button label with proper formatting
                     char speedLabel[SPEED_LABEL_BUFFER_SIZE];
@@ -2369,7 +2370,7 @@ void runGraphics() {
             
             // Pause/speed indicator below time
             char statusStr[40];
-            float speedMultiplier = simSpeed / 60.0f;
+            float speedMultiplier = simSpeed / SIM_SPEED_TO_MULTIPLIER;  // Convert from minutes/second to multiplier (1x, 2x, etc.)
             if (simPaused) {
                 snprintf(statusStr, sizeof(statusStr), "PAUSED | Speed: %.1fx", speedMultiplier);
             } else {
