@@ -47,6 +47,7 @@ void intToString(int val, char* buffer) {
     sprintf(buffer, "%d", val);
 }
 
+// Custom min function - project avoids STL per design requirement
 int minInt(int a, int b) {
     return (a < b) ? a : b;
 }
@@ -123,6 +124,7 @@ sf::Color COL_INPUT_BG(255, 255, 255);
 sf::Color COL_INPUT_FOCUS(200, 230, 255);
 
 // Route colors for multi-route visualization
+// Note: Array size matches MAX_ROUTES_TO_DISPLAY (5 colors for 5 max routes)
 const sf::Color ROUTE_COLORS[5] = {
     sf::Color(0, 255, 100, 200),    // Green
     sf::Color(255, 200, 0, 200),    // Gold
