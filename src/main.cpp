@@ -47,6 +47,10 @@ void intToString(int val, char* buffer) {
     sprintf(buffer, "%d", val);
 }
 
+int minInt(int a, int b) {
+    return (a < b) ? a : b;
+}
+
 void appendChar(char* str, char c, int maxSize) {
     int len = strlen(str);
     if (len < maxSize - 1) {
@@ -92,6 +96,8 @@ int totalPorts = 0;
 const float SIDEBAR_WIDTH = 350.0f;
 const float MAP_OFFSET_X = 350.0f; 
 const int MAX_ROUTES_TO_DISPLAY = 5;
+const int MAX_ROUTES_FOR_GLOW = 3;
+const float GLOW_OFFSET = 2.0f;
 
 int selectedStart = -1;
 int selectedEnd = -1;
@@ -1010,7 +1016,7 @@ void runGraphics() {
 
         if (showJourneys) {
             // Limit the number of routes displayed to prevent clutter and crashes
-            int maxRoutesToShow = foundJourneysCount < MAX_ROUTES_TO_DISPLAY ? foundJourneysCount : MAX_ROUTES_TO_DISPLAY;
+            int maxRoutesToShow = minInt(foundJourneysCount, MAX_ROUTES_TO_DISPLAY);
             
             for(int i=0; i<maxRoutesToShow; i++) {
                 Journey& j = foundJourneys[i];
@@ -1075,17 +1081,17 @@ void runGraphics() {
                         }
                         
                         // Draw glow effect only for single route or filtered routes with few results
-                        if (userPrefs.usePreferences && maxRoutesToShow <= 3) {
+                        if (userPrefs.usePreferences && maxRoutesToShow <= MAX_ROUTES_FOR_GLOW) {
                             sf::Color glowColor = sf::Color(255, 200, 0, 60); // Lower alpha for less intensity
                             
                             // Draw just 2 glow lines (above and below) instead of 6
                             sf::Vertex glowLine1[] = {
-                                sf::Vertex(sf::Vector2f(p1.x, p1.y - 2), glowColor),
-                                sf::Vertex(sf::Vector2f(p2.x, p2.y - 2), glowColor)
+                                sf::Vertex(sf::Vector2f(p1.x, p1.y - GLOW_OFFSET), glowColor),
+                                sf::Vertex(sf::Vector2f(p2.x, p2.y - GLOW_OFFSET), glowColor)
                             };
                             sf::Vertex glowLine2[] = {
-                                sf::Vertex(sf::Vector2f(p1.x, p1.y + 2), glowColor),
-                                sf::Vertex(sf::Vector2f(p2.x, p2.y + 2), glowColor)
+                                sf::Vertex(sf::Vector2f(p1.x, p1.y + GLOW_OFFSET), glowColor),
+                                sf::Vertex(sf::Vector2f(p2.x, p2.y + GLOW_OFFSET), glowColor)
                             };
                             window.draw(glowLine1, 2, sf::Lines);
                             window.draw(glowLine2, 2, sf::Lines);
