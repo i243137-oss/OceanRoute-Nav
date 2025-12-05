@@ -114,6 +114,7 @@ const int DEMO_SERVICE_COUNT = 2;      // Number of ships being serviced in Sing
 // UI constants
 const int QUEUE_LABEL_BUFFER_SIZE = 50; // Buffer size for queue label text
 const int SPEED_LABEL_BUFFER_SIZE = 30; // Buffer size for speed label text
+const int DEBUG_LOG_THROTTLE_FRAMES = 60; // Throttle debug logging to every N frames (60 frames ~ 1 second at 60fps)
 
 int selectedStart = -1;
 int selectedEnd = -1;
@@ -2313,13 +2314,14 @@ void runGraphics() {
                 if (totalTravelTime > 0 && elapsedTime >= 0) {
                     progress = (float)elapsedTime / (float)totalTravelTime;
                     // Clamp progress to [0.0, 1.0] range for safety
-                    progress = std::max(0.0f, std::min(1.0f, progress));
+                    if (progress < 0.0f) progress = 0.0f;
+                    if (progress > 1.0f) progress = 1.0f;
                 }
                 
                 #if DEBUG_ROUTE_EVALUATION
-                // Debug: Log ship drawing (throttled to every 60 frames ~ 1 second at 60fps)
+                // Debug: Log ship drawing (throttled to avoid spam)
                 static int debugDrawCounter = 0;
-                if (debugDrawCounter++ % 60 == 0) {
+                if (debugDrawCounter++ % DEBUG_LOG_THROTTLE_FRAMES == 0) {
                     printf("[SHIP_DRAW] Ship #%d TRAVELING: progress=%.3f, time=%lld/%lld, pos=(%.1f,%.1f), origin=%s(%.1f,%.1f), dest=%s(%.1f,%.1f)\n",
                            ship->shipId, progress, elapsedTime, totalTravelTime,
                            ports[originIdx].x + (ports[destIdx].x - ports[originIdx].x) * progress,
@@ -2366,9 +2368,9 @@ void runGraphics() {
         }
         
         #if DEBUG_ROUTE_EVALUATION
-        // Debug: Log ship state counts (throttled to every 60 frames ~ 1 second at 60fps)
+        // Debug: Log ship state counts (throttled to avoid spam)
         static int debugStateCounter = 0;
-        if (debugStateCounter++ % 60 == 0 && (travelingCount > 0 || waitingCount > 0 || dockedCount > 0)) {
+        if (debugStateCounter++ % DEBUG_LOG_THROTTLE_FRAMES == 0 && (travelingCount > 0 || waitingCount > 0 || dockedCount > 0)) {
             printf("[SHIP_STATES] TRAVELING=%d, WAITING=%d, DOCKED=%d (total=%d)\n",
                    travelingCount, waitingCount, dockedCount, travelingCount + waitingCount + dockedCount);
         }
