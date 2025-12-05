@@ -911,10 +911,14 @@ void runGraphics() {
                             tempCopy[49] = '\0';
                             char* token = strtok(tempCopy, ",");
                             while (token != nullptr && userPrefs.preferredCompanyCount < 5) {
-                                // Trim leading/trailing spaces
+                                // Trim leading spaces
                                 while (*token == ' ') token++;
-                                char* end = token + strlen(token) - 1;
-                                while (end > token && *end == ' ') { *end = '\0'; end--; }
+                                // Trim trailing spaces
+                                int len = strlen(token);
+                                if (len > 0) {
+                                    char* end = token + len - 1;
+                                    while (end > token && *end == ' ') { *end = '\0'; end--; }
+                                }
                                 
                                 if (strlen(token) > 0) {
                                     strcpy(userPrefs.preferredCompanies[userPrefs.preferredCompanyCount], token);
@@ -931,10 +935,14 @@ void runGraphics() {
                             tempCopy[49] = '\0';
                             char* token = strtok(tempCopy, ",");
                             while (token != nullptr && userPrefs.avoidedPortCount < 10) {
-                                // Trim leading/trailing spaces
+                                // Trim leading spaces
                                 while (*token == ' ') token++;
-                                char* end = token + strlen(token) - 1;
-                                while (end > token && *end == ' ') { *end = '\0'; end--; }
+                                // Trim trailing spaces
+                                int len = strlen(token);
+                                if (len > 0) {
+                                    char* end = token + len - 1;
+                                    while (end > token && *end == ' ') { *end = '\0'; end--; }
+                                }
                                 
                                 if (strlen(token) > 0) {
                                     strcpy(userPrefs.avoidedPorts[userPrefs.avoidedPortCount], token);
