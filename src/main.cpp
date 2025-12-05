@@ -124,6 +124,7 @@ const sf::Color ROUTE_COLORS[5] = {
     sf::Color(255, 100, 200, 200),  // Pink
     sf::Color(200, 100, 255, 200)   // Purple
 };
+const int ROUTE_COLORS_COUNT = sizeof(ROUTE_COLORS) / sizeof(ROUTE_COLORS[0]);
 
 bool isPortAvoided(int portIndex) {
     if (!userPrefs.usePreferences) return false;
@@ -1042,7 +1043,7 @@ void runGraphics() {
                 if (j.isDijkstra) {
                     pathColor = sf::Color(0, 150, 255, 220);
                 } else if (bookingMode == 3) {
-                    pathColor = ROUTE_COLORS[i % 5];
+                    pathColor = ROUTE_COLORS[i % ROUTE_COLORS_COUNT];
                 } else {
                     pathColor = j.isDirect ? sf::Color(255, 215, 0, 220) : sf::Color(0, 255, 0, 180);
                 }
