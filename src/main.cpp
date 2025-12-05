@@ -1342,6 +1342,10 @@ void spawnShip(Journey& journey) {
     addShipToActiveList(ship);
 }
 
+// DEPRECATED: This function uses a simplified calendar (30 days/month, 365 days/year)
+// that is inconsistent with the actual getMinutes() implementation.
+// DO NOT USE - kept for backward compatibility only.
+// Use the conversion logic in booking section (lines 1951-1990) instead.
 void formatSimDateTime(long long absoluteMinutes, char* buffer, int bufferSize) {
     // Convert absolute minutes (from getMinutes()) back to date/time
     // Reverse the calculation in getMinutes(): year*525600 + month*43200 + day*1440 + hour*60 + minute
