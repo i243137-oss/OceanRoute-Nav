@@ -75,7 +75,8 @@ We take pride in the effort poured into this project.
 
 *   **Language:** C++11 (No STL)
 *   **Graphics:** SFML 2.6
-*   **Build System:** CMake / MinGW
+*   **Build System:** CMake / MinGW / GCC
+*   **Platforms:** Windows, Linux, macOS
 *   **Architecture:** Modular (Logic, Data, UI separation)
 
 ---
@@ -105,6 +106,41 @@ We take pride in the effort poured into this project.
     ```bash
     ./OceanRouteNav
     ```
+
+### 🐧 Linux Installation
+
+#### Install Dependencies
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install build-essential libsfml-dev
+```
+
+**Fedora:**
+```bash
+sudo dnf install gcc-c++ SFML-devel
+```
+
+**Arch Linux:**
+```bash
+sudo pacman -S base-devel sfml
+```
+
+#### Build & Run
+```bash
+git clone https://github.com/i243137-oss/OceanRoute-Nav.git
+cd OceanRoute-Nav
+chmod +x build.sh
+./build.sh
+./OceanRouteNav
+```
+
+Or manually:
+```bash
+g++ src/main.cpp -o OceanRouteNav -lsfml-graphics -lsfml-window -lsfml-system
+./OceanRouteNav
+```
 
 ---
 
