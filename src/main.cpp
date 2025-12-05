@@ -12,6 +12,9 @@ using namespace std;
 // Debug flag for route evaluation logging
 #define DEBUG_ROUTE_EVALUATION 1
 
+// Debug flag to enable demo queue data at Singapore
+#define ENABLE_DEMO_QUEUE_DATA 1
+
 // Cross-platform case-insensitive string comparison
 #ifdef _WIN32
     #define strcasecmp _stricmp
@@ -99,6 +102,8 @@ const float MAP_OFFSET_X = 350.0f;
 const int MAX_ROUTES_TO_DISPLAY = 5;
 const int MAX_ROUTES_FOR_GLOW = 3;
 const float GLOW_OFFSET = 2.0f;
+const int MAX_QUEUE_SHIPS_DISPLAY = 3; // Maximum number of animated ships to show in queue visualization
+const int DEFAULT_DOCK_SLOTS = 2;      // Default number of docking slots per port
 
 int selectedStart = -1;
 int selectedEnd = -1;
@@ -360,17 +365,19 @@ void loadData() {
             ports[i].headRoute = nullptr;
             
             // Initialize dock queue management fields with defaults
-            ports[i].dockSlots = 2;           // Default: 2 docking slots per port
-            ports[i].queueCount = 0;          // No ships waiting initially
-            ports[i].inServiceCount = 0;      // No ships being serviced initially
-            ports[i].estWaitMinutes = 0;      // No wait time initially
+            ports[i].dockSlots = DEFAULT_DOCK_SLOTS;  // Default docking slots per port
+            ports[i].queueCount = 0;                   // No ships waiting initially
+            ports[i].inServiceCount = 0;               // No ships being serviced initially
+            ports[i].estWaitMinutes = 0;               // No wait time initially
             
+            #if ENABLE_DEMO_QUEUE_DATA
             // Seed Singapore with demo queue data for visualization
             if (strcmp(ports[i].name, "Singapore") == 0) {
-                ports[i].queueCount = 2;      // 2 ships waiting
-                ports[i].inServiceCount = 2;  // Both docks occupied
-                recomputeEstWait(ports[i]);   // Compute wait time (will be ~8 hours = 480 min)
+                ports[i].queueCount = 2;               // 2 ships waiting
+                ports[i].inServiceCount = 2;           // Both docks occupied
+                recomputeEstWait(ports[i]);            // Compute wait time (will be ~8 hours)
             }
+            #endif
             
             i++;
         }
@@ -1208,7 +1215,7 @@ void runGraphics() {
                 }
                 
                 // Animate small circles (ships) moving toward the port
-                int shipsToShow = (ports[i].queueCount > 3) ? 3 : ports[i].queueCount;
+                int shipsToShow = (ports[i].queueCount > MAX_QUEUE_SHIPS_DISPLAY) ? MAX_QUEUE_SHIPS_DISPLAY : ports[i].queueCount;
                 for (int s = 0; s < shipsToShow; s++) {
                     // Each ship animates with a different phase offset
                     float animPhase = fmod(time * 0.5f + s * 0.3f, 1.0f);
@@ -1226,7 +1233,7 @@ void runGraphics() {
                 
                 // Draw text label showing queue size and estimated wait
                 char queueLabel[50];
-                sprintf(queueLabel, "Q:%d | %dh", ports[i].queueCount, ports[i].estWaitMinutes / 60);
+                snprintf(queueLabel, sizeof(queueLabel), "Q:%d | %dh", ports[i].queueCount, ports[i].estWaitMinutes / 60);
                 
                 sf::Text queueText(queueLabel, font, 9);
                 queueText.setFillColor(sf::Color(255, 255, 100));

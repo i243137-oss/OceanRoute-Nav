@@ -215,14 +215,14 @@ public:
 // ==========================================
 // 7. Queue Management Helper Functions
 // ==========================================
-const int AVG_SERVICE_MINUTES = 240; // 4 hours average service time
+const int DEFAULT_SERVICE_TIME_MINUTES = 240; // 4 hours average service time per ship
 
 // Recompute estimated wait time for a port
 // Formula: ((queueCount + inServiceCount - dockSlots) * avgServiceMinutes), clamped at >= 0
 inline void recomputeEstWait(Port& port) {
     int occupancy = port.queueCount + port.inServiceCount - port.dockSlots;
     if (occupancy < 0) occupancy = 0;
-    port.estWaitMinutes = occupancy * AVG_SERVICE_MINUTES;
+    port.estWaitMinutes = occupancy * DEFAULT_SERVICE_TIME_MINUTES;
 }
 
 // Ship arrives at port and joins queue
