@@ -1965,10 +1965,14 @@ void runGraphics() {
                         getDaysInMonth(timeSim.year, daysInMonth);
                         
                         timeSim.month = 1;
-                        long long daysRemaining = remaining / 1440;
-                        while (timeSim.month <= 12 && daysRemaining >= daysInMonth[timeSim.month]) {
-                            daysRemaining -= daysInMonth[timeSim.month];
-                            timeSim.month++;
+                        while (timeSim.month <= 12) {
+                            long long monthMinutes = daysInMonth[timeSim.month] * 1440;
+                            if (remaining >= monthMinutes) {
+                                remaining -= monthMinutes;
+                                timeSim.month++;
+                            } else {
+                                break;
+                            }
                         }
                         // If month exceeds 12, it indicates a bug in the conversion logic
                         if (timeSim.month > 12) {
@@ -1977,8 +1981,8 @@ void runGraphics() {
                         }
                         
                         // Extract day (add 1 because day 1 is the first day)
-                        timeSim.day = (int)daysRemaining + 1;
-                        remaining -= daysRemaining * 1440;
+                        timeSim.day = (int)(remaining / 1440) + 1;
+                        remaining = remaining % 1440;
                         
                         // Extract hour and minute
                         timeSim.hour = (int)(remaining / 60);
@@ -1987,6 +1991,11 @@ void runGraphics() {
                         // Safety checks
                         if (timeSim.month < 1) timeSim.month = 1;
                         if (timeSim.day < 1) timeSim.day = 1;
+                        
+                        // Debug: Print to verify correct time initialization
+                        printf("[DEBUG] Simulation initialized: %02d/%02d/%04d %02d:%02d (simTimeMinutes=%lld)\n",
+                               timeSim.day, timeSim.month, timeSim.year,
+                               timeSim.hour, timeSim.minute, simTimeMinutes);
                         
                         timeSim.isPaused = false;
                         
