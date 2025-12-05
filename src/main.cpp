@@ -104,6 +104,7 @@ const int MAX_ROUTES_FOR_GLOW = 3;
 const float GLOW_OFFSET = 2.0f;
 const int MAX_QUEUE_SHIPS_DISPLAY = 3; // Maximum number of animated ships to show in queue visualization
 const int DEFAULT_DOCK_SLOTS = 2;      // Default number of docking slots per port
+const int MAX_PORTS = 100;             // Maximum number of ports supported
 
 // Demo queue data constants (used when ENABLE_DEMO_QUEUE_DATA is enabled)
 const int DEMO_QUEUE_COUNT = 2;        // Number of ships waiting in Singapore demo queue
@@ -171,7 +172,7 @@ struct PortQueue {
     float ships[10]; // Arrival times of ships in queue
 };
 
-PortQueue portQueues[50]; // One for each port
+PortQueue* portQueues = nullptr; // One for each port (dynamically allocated)
 
 // ==========================================
 // Other Ships System
@@ -324,6 +325,7 @@ float getAngle(float x1, float y1, float x2, float y2) {
 // Spawn random other ships
 void spawnOtherShip(int portIndex, sf::Clock& animClock) {
     if (otherShipCount >= 20) return;
+    if (portIndex < 0 || portIndex >= totalPorts) return; // Bounds check
     
     const char* companies[] = {"MSC", "Maersk", "CMA-CGM", "Evergreen", "ONE"};
     OtherShip& ship = otherShips[otherShipCount++];
@@ -367,7 +369,10 @@ void updateOtherShips(float deltaTime, sf::Clock& animClock) {
                 if (ship.stateTimer > 3.0f + (rand() % 3)) { // 3-5 seconds in queue
                     ship.state = OtherShip::DEPARTING;
                     ship.stateTimer = 0;
-                    portQueues[ship.portIndex].shipCount--;
+                    // Bounds check before decrementing
+                    if (ship.portIndex >= 0 && ship.portIndex < totalPorts && portQueues[ship.portIndex].shipCount > 0) {
+                        portQueues[ship.portIndex].shipCount--;
+                    }
                     char msg[100];
                     snprintf(msg, sizeof(msg), "Ship %s-%d departing from %s", ship.company, ship.shipNumber, ports[ship.portIndex].name);
                     addShipLog(msg, false, animClock);
@@ -435,6 +440,9 @@ void drawOtherShipsInQueue(sf::RenderWindow& window) {
     for (int i = 0; i < otherShipCount; i++) {
         OtherShip& ship = otherShips[i];
         if (!ship.active || ship.state == OtherShip::GONE) continue;
+        
+        // Bounds check for portIndex
+        if (ship.portIndex < 0 || ship.portIndex >= totalPorts) continue;
         
         float portX = ports[ship.portIndex].x;
         float portY = ports[ship.portIndex].y;
@@ -677,8 +685,11 @@ void loadData() {
     exploredPorts = new bool[totalPorts];
     finalPathPorts = new bool[totalPorts];
     
+    // Allocate port queues dynamically based on total ports
+    portQueues = new PortQueue[totalPorts];
+    
     // Initialize port queues
-    for (int i = 0; i < 50; i++) {
+    for (int i = 0; i < totalPorts; i++) {
         portQueues[i].shipCount = 0;
         for (int j = 0; j < 10; j++) {
             portQueues[i].ships[j] = 0.0f;
