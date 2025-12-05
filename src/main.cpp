@@ -91,6 +91,7 @@ Port* ports = nullptr;
 int totalPorts = 0;    
 const float SIDEBAR_WIDTH = 350.0f;
 const float MAP_OFFSET_X = 350.0f; 
+const int MAX_ROUTES_TO_DISPLAY = 5;
 
 int selectedStart = -1;
 int selectedEnd = -1;
@@ -114,6 +115,15 @@ sf::Color COL_BTN_IDLE(50, 50, 60);
 sf::Color COL_TEXT_WHITE(240, 240, 240);
 sf::Color COL_INPUT_BG(255, 255, 255);
 sf::Color COL_INPUT_FOCUS(200, 230, 255);
+
+// Route colors for multi-route visualization
+const sf::Color ROUTE_COLORS[5] = {
+    sf::Color(0, 255, 100, 200),    // Green
+    sf::Color(255, 200, 0, 200),    // Gold
+    sf::Color(0, 200, 255, 200),    // Cyan
+    sf::Color(255, 100, 200, 200),  // Pink
+    sf::Color(200, 100, 255, 200)   // Purple
+};
 
 bool isPortAvoided(int portIndex) {
     if (!userPrefs.usePreferences) return false;
@@ -999,7 +1009,7 @@ void runGraphics() {
 
         if (showJourneys) {
             // Limit the number of routes displayed to prevent clutter and crashes
-            int maxRoutesToShow = foundJourneysCount < 5 ? foundJourneysCount : 5;
+            int maxRoutesToShow = foundJourneysCount < MAX_ROUTES_TO_DISPLAY ? foundJourneysCount : MAX_ROUTES_TO_DISPLAY;
             
             for(int i=0; i<maxRoutesToShow; i++) {
                 Journey& j = foundJourneys[i];
@@ -1028,20 +1038,11 @@ void runGraphics() {
                 
                 float offset = (i - maxRoutesToShow/2.0f) * 8.0f;
 
-                // Assign different colors to different routes for better distinction
-                sf::Color routeColors[] = {
-                    sf::Color(0, 255, 100, 200),    // Green
-                    sf::Color(255, 200, 0, 200),    // Gold
-                    sf::Color(0, 200, 255, 200),    // Cyan
-                    sf::Color(255, 100, 200, 200),  // Pink
-                    sf::Color(200, 100, 255, 200)   // Purple
-                };
-                
                 sf::Color pathColor;
                 if (j.isDijkstra) {
                     pathColor = sf::Color(0, 150, 255, 220);
                 } else if (bookingMode == 3) {
-                    pathColor = routeColors[i % 5];
+                    pathColor = ROUTE_COLORS[i % 5];
                 } else {
                     pathColor = j.isDirect ? sf::Color(255, 215, 0, 220) : sf::Color(0, 255, 0, 180);
                 }
