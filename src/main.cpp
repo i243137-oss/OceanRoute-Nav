@@ -468,8 +468,14 @@ void dijkstra_shortest_cost_scheduled(int source, int destination, Date userDate
         while (r != nullptr) {
             int v = r->destinationIndex;
             
+            printf("DEBUG: Evaluating route %s -> %s, Company: %s\n", 
+                   ports[u].name, ports[v].name, r->company);
+            
+            bool companyOk = isCompanyPreferred(r->company);
+            printf("DEBUG: Company preferred: %s\n", companyOk ? "YES" : "NO");
+            
             // Apply preference filters
-            if (!isPortAvoided(v) && isCompanyPreferred(r->company)) {
+            if (!isPortAvoided(v) && companyOk) {
                 long long departureTime = getMinutes(r->voyageDate, r->departureTime);
                 
                 // FIX: Use arrivalTimes[u] + 120 minute layover instead of ports[u].minCost
@@ -489,8 +495,13 @@ void dijkstra_shortest_cost_scheduled(int source, int destination, Date userDate
                         arrivalTimes[v] = routeArrivalTime; // FIX: Store actual arrival time
                         exploredPorts[v] = true;
                         pq.push(v, newCost);
+                        printf("DEBUG: Route accepted! Cost: %lld\n", newCost);
                     }
+                } else {
+                    printf("DEBUG: Route rejected (timing constraints)\n");
                 }
+            } else {
+                printf("DEBUG: Route rejected (port avoided or company not preferred)\n");
             }
             r = r->next;
         }
@@ -525,7 +536,7 @@ void reconstructDijkstraPath(int source, int destination, Journey& result) {
         Route* foundRoute = nullptr;
         Route* r = ports[prevPort].headRoute;
         while (r != nullptr) {
-            if (r->destinationIndex == nextPort) {
+            if (r->destinationIndex == nextPort && isCompanyPreferred(r->company)) {
                 foundRoute = r;
                 break;
             }
@@ -626,7 +637,11 @@ void findScheduledRoutes(int u, int target, int depth, long long currentArrivalT
     
     while (r != nullptr) {
         int v = r->destinationIndex;
+        printf("DEBUG DFS: Checking %s -> %s, Company: %s\n", 
+               ports[u].name, ports[v].name, r->company);
+        
         if (!visited[v] && !isPortAvoided(v) && isCompanyPreferred(r->company)) {
+            printf("DEBUG DFS: Route matches preferences\n");
             long long departureTime = getMinutes(r->voyageDate, r->departureTime);
             long long requiredDepartureTime = currentArrivalTime + 120;
             long long arrivalTime = getMinutes(r->voyageDate, r->arrivalTime);
@@ -636,7 +651,10 @@ void findScheduledRoutes(int u, int target, int depth, long long currentArrivalT
             if (departureTime >= requiredDepartureTime && meetsTimeLimit(departureTime, arrivalTime)) {
                 pathSoFar[depth] = r;
                 findScheduledRoutes(v, target, depth + 1, arrivalTime, currentCost + r->cost, pathSoFar);
-            } 
+            }
+        } else {
+            printf("DEBUG DFS: Route rejected - visited:%d, avoided:%d, companyOk:%d\n",
+                   visited[v], isPortAvoided(v), isCompanyPreferred(r->company));
         }
         r = r->next;
     }
