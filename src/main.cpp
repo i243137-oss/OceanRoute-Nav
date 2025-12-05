@@ -1390,6 +1390,27 @@ void runGraphics() {
                     tempCompany[0] = '\0';
                     tempAvoidPort[0] = '\0';
                     
+                    // Clear all active ships
+                    while (activeShipsHead != nullptr) {
+                        Ship* temp = activeShipsHead;
+                        activeShipsHead = activeShipsHead->next;
+                        
+                        // Remove ship from port queue if it's waiting
+                        if (temp->state == WAITING_QUEUE && temp->currentPortIndex >= 0 && temp->currentPortIndex < totalPorts) {
+                            if (ports[temp->currentPortIndex].queueCount > 0) {
+                                ports[temp->currentPortIndex].queueCount--;
+                                recomputeEstWait(ports[temp->currentPortIndex]);
+                            }
+                        }
+                        
+                        delete temp;
+                    }
+                    
+                    // Reset simulation state
+                    simTimeMinutes = 0;
+                    simPaused = true;
+                    btnSimPlayPause.label.setString("Play");
+                    
                     strcpy(statusMessage, "Ready."); strcpy(pathDetails, ""); strcpy(inputDateString, "20/12/2024");
                     txtStart.setString("From: None"); txtEnd.setString("To:   None");
                 }
@@ -1886,6 +1907,13 @@ int main() {
     loadData();
     initCoordinates();
     runGraphics();
+    
+    // Clean up active ships
+    while (activeShipsHead != nullptr) {
+        Ship* temp = activeShipsHead;
+        activeShipsHead = activeShipsHead->next;
+        delete temp;
+    }
     
     if(ports) delete[] ports;
     if(visited) delete[] visited;
