@@ -944,29 +944,28 @@ void spawnShip(Journey& journey) {
     addShipToActiveList(ship);
 }
 
-void formatSimDateTime(long long minutes, char* buffer, int bufferSize) {
-    // Convert absolute minutes to date/time
-    long long totalMinutes = minutes;
-    int year = SIM_BASE_YEAR;
-    int month = SIM_BASE_MONTH;
-    int day = SIM_BASE_DAY;
+void formatSimDateTime(long long absoluteMinutes, char* buffer, int bufferSize) {
+    // Convert absolute minutes (from getMinutes()) back to date/time
+    // Reverse the calculation in getMinutes(): year*525600 + month*43200 + day*1440 + hour*60 + minute
+    // Note: Uses simplified calendar (30 days/month, 365 days/year) to match getMinutes()
     
-    // Add days
-    day += (int)(totalMinutes / 1440);
-    totalMinutes %= 1440;
+    long long remaining = absoluteMinutes;
     
-    // Handle month overflow (simplified - assume 30 days per month)
-    while (day > 30) {
-        day -= 30;
-        month++;
-        if (month > 12) {
-            month = 1;
-            year++;
-        }
-    }
+    // Extract year (525600 minutes per year = 365 days * 1440 minutes/day)
+    int year = (int)(remaining / 525600);
+    remaining %= 525600;
     
-    int hour = (int)(totalMinutes / 60);
-    int minute = (int)(totalMinutes % 60);
+    // Extract month (43200 minutes per month = 30 days * 1440 minutes/day)
+    int month = (int)(remaining / 43200);
+    remaining %= 43200;
+    
+    // Extract day (1440 minutes per day)
+    int day = (int)(remaining / 1440);
+    remaining %= 1440;
+    
+    // Extract hour and minute
+    int hour = (int)(remaining / 60);
+    int minute = (int)(remaining % 60);
     
     snprintf(buffer, bufferSize, "%02d/%02d/%04d %02d:%02d", day, month, year, hour, minute);
 }
@@ -1065,10 +1064,10 @@ void processSimulationTick() {
 void updateSimulationClock(float deltaTime) {
     if (simPaused) return;
     
-    // deltaTime is in seconds, simSpeed is sim minutes per real second
-    // At 60x speed: 1 real second = 60 sim minutes = 1 sim hour
-    float simMinutesPerSecond = simSpeed / 60.0f;  // Convert to minutes per second
-    simAccumulator += deltaTime * simMinutesPerSecond * 60.0f;
+    // deltaTime is in seconds, simSpeed is the multiplier
+    // At 60x speed: 1 real second = 60 sim minutes
+    // simSpeed is already in minutes per real-time minute, so multiply by 60 for minutes per second
+    simAccumulator += deltaTime * simSpeed;
     
     // Process whole minutes
     while (simAccumulator >= 1.0f) {
@@ -1406,8 +1405,10 @@ void runGraphics() {
                         delete temp;
                     }
                     
-                    // Reset simulation state
-                    simTimeMinutes = 0;
+                    // Reset simulation state to base date/time
+                    Date baseDate = {SIM_BASE_DAY, SIM_BASE_MONTH, SIM_BASE_YEAR};
+                    Time baseTime = {0, 0};
+                    simTimeMinutes = getMinutes(baseDate, baseTime);
                     simPaused = true;
                     btnSimPlayPause.label.setString("Play");
                     
@@ -1906,6 +1907,12 @@ void runGraphics() {
 int main() {
     loadData();
     initCoordinates();
+    
+    // Initialize simulation time to base date
+    Date baseDate = {SIM_BASE_DAY, SIM_BASE_MONTH, SIM_BASE_YEAR};
+    Time baseTime = {0, 0};
+    simTimeMinutes = getMinutes(baseDate, baseTime);
+    
     runGraphics();
     
     // Clean up active ships
