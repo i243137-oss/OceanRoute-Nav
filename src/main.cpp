@@ -103,7 +103,7 @@ const int MAX_ROUTES_TO_DISPLAY = 5;
 const int MAX_ROUTES_FOR_GLOW = 3;
 const float GLOW_OFFSET = 2.0f;
 const int MAX_QUEUE_SHIPS_DISPLAY = 3; // Maximum number of animated ships to show in queue visualization
-const int DEFAULT_DOCK_SLOTS = 2;      // Default number of docking slots per port
+const int DEFAULT_DOCK_SLOTS = 1;      // Default number of docking slots per port (reduced to surface contention)
 const int MAX_PORTS = 100;             // Maximum number of ports supported
 
 // Demo queue data constants (used when ENABLE_DEMO_QUEUE_DATA is enabled)
@@ -112,6 +112,7 @@ const int DEMO_SERVICE_COUNT = 2;      // Number of ships being serviced in Sing
 
 // UI constants
 const int QUEUE_LABEL_BUFFER_SIZE = 50; // Buffer size for queue label text
+const int SPEED_LABEL_BUFFER_SIZE = 30; // Buffer size for speed label text
 
 int selectedStart = -1;
 int selectedEnd = -1;
@@ -1226,8 +1227,9 @@ void spawnShip(Journey& journey) {
     ship->nextDepartureMin = ship->departureTimeMin;
     
     // Ship starts waiting at origin port until departure time
-    ship->state = WAITING_QUEUE;
+    // Join port queue - ship arrives at origin
     shipArrival(ports[ship->originIndex]);
+    ship->state = WAITING_QUEUE;
     
     addShipToActiveList(ship);
 }
@@ -1284,12 +1286,12 @@ void processSimulationTick() {
                         curr->state = COMPLETED;
                         removeShip = true;
                     } else {
-                        // More legs to go - join port queue
+                        // More legs to go - join port queue and prepare for next leg
                         curr->currentLegIndex++;
                         Route* nextLeg = curr->legs[curr->currentLegIndex];
                         curr->nextDepartureMin = getMinutes(nextLeg->voyageDate, nextLeg->departureTime);
                         
-                        // Add ship to port queue
+                        // Ship arrives at port and joins queue
                         shipArrival(ports[destPortIdx]);
                         curr->state = WAITING_QUEUE;
                     }
@@ -1297,36 +1299,41 @@ void processSimulationTick() {
                 break;
                 
             case WAITING_QUEUE:
-                // Check if it's time to depart
-                if (simTimeMinutes >= curr->nextDepartureMin) {
-                    // Try to get a dock slot
-                    if (ports[curr->currentPortIndex].inServiceCount < ports[curr->currentPortIndex].dockSlots) {
-                        // Dock available - start immediate departure (no separate docking phase for simplicity)
-                        // Remove from queue and depart
-                        if (ports[curr->currentPortIndex].queueCount > 0) {
-                            ports[curr->currentPortIndex].queueCount--;
-                            recomputeEstWait(ports[curr->currentPortIndex]);
-                        }
-                        
-                        // Set up next leg travel
-                        Route* departingLeg = curr->legs[curr->currentLegIndex];
-                        curr->departureTimeMin = getMinutes(departingLeg->voyageDate, departingLeg->departureTime);
-                        curr->arrivalTimeMin = getMinutes(departingLeg->voyageDate, departingLeg->arrivalTime);
-                        
-                        // Handle day boundary
-                        if (departingLeg->arrivalTime.hour < departingLeg->departureTime.hour) {
-                            curr->arrivalTimeMin += 1440;
-                        }
-                        
-                        curr->state = TRAVELING;
-                    }
-                    // If no dock available, ship waits in queue
+                // Ships in queue must wait for two conditions:
+                // 1. Scheduled departure time has arrived
+                // 2. A dock slot is available
+                
+                // First, try to get a dock slot if available (transition to DOCKED)
+                // Note: startService maintains FIFO ordering via queueCount mechanism
+                // Only one ship per port can transition per tick, ensuring fair processing
+                if (ports[curr->currentPortIndex].inServiceCount < ports[curr->currentPortIndex].dockSlots) {
+                    // Dock slot available - start service
+                    startService(ports[curr->currentPortIndex]);
+                    curr->state = DOCKED;
                 }
+                // Ship stays in WAITING_QUEUE until dock opens
                 break;
                 
             case DOCKED:
-                // Docked state not used in simplified model
-                // Ships go directly from WAITING_QUEUE to TRAVELING at departure time
+                // Ship is docked and being serviced
+                // Check if scheduled departure time has arrived
+                if (simTimeMinutes >= curr->nextDepartureMin) {
+                    // Departure time reached - finish service and depart
+                    finishService(ports[curr->currentPortIndex]);
+                    
+                    // Set up next leg travel
+                    Route* departingLeg = curr->legs[curr->currentLegIndex];
+                    curr->departureTimeMin = getMinutes(departingLeg->voyageDate, departingLeg->departureTime);
+                    curr->arrivalTimeMin = getMinutes(departingLeg->voyageDate, departingLeg->arrivalTime);
+                    
+                    // Handle day boundary
+                    if (departingLeg->arrivalTime.hour < departingLeg->departureTime.hour) {
+                        curr->arrivalTimeMin += 1440;
+                    }
+                    
+                    curr->state = TRAVELING;
+                }
+                // Ship stays DOCKED until departure time
                 break;
                 
             case COMPLETED:
@@ -1481,11 +1488,12 @@ void runGraphics() {
     InputBox dateInput; 
     dateInput.init(20, 88, 310, 25, font, "DD/MM/YYYY");
     
+    // Preferences input boxes (positioned over map area)
     InputBox companyInput; 
-    companyInput.init(25, 383, 290, 25, font, "e.g., Maersk, MSC");
+    companyInput.init(MAP_OFFSET_X + 395, 283, 290, 28, font, "e.g., Maersk, MSC");
     
     InputBox avoidPortInput; 
-    avoidPortInput.init(25, 433, 290, 25, font, "e.g., Dubai, Mumbai");
+    avoidPortInput.init(MAP_OFFSET_X + 395, 343, 290, 28, font, "e.g., Dubai, Mumbai");
     
     Button btnSearch, btnDijkstra, btnBook, btnClear;
     btnSearch.init(20, 138, 310, 28, "Find Routes (Date)", font);
@@ -1495,14 +1503,12 @@ void runGraphics() {
     
     Button btnPreferences, btnApplyPrefs;
     btnPreferences.init(20, 305, 310, 28, "Preferences", font);
-    btnApplyPrefs.init(25, 470, 290, 28, "Apply Filters", font);
+    btnApplyPrefs.init(MAP_OFFSET_X + 445, 385, 190, 30, "Apply Filters", font);
     
     // Simulation control buttons
-    Button btnStartSim, btnPauseSim, btnSpeedUp, btnSpeedDown;
-    btnStartSim.init(20, 363, 72, 24, "> Start", font);
-    btnPauseSim.init(97, 363, 72, 24, "|| Pause", font);
-    btnSpeedUp.init(174, 363, 60, 24, ">> 2x", font);
-    btnSpeedDown.init(239, 363, 60, 24, "<< 1x", font);
+    Button btnPlayPause, btnSpeedCycle;
+    btnPlayPause.init(20, 363, 148, 24, "Play/Pause", font);
+    btnSpeedCycle.init(173, 363, 157, 24, "Speed: 60x", font);
 
     // Section Headers and Labels with improved visual hierarchy
     sf::Text txtSectionPortSelect("PORT SELECTION", font, 10); 
@@ -1544,22 +1550,24 @@ void runGraphics() {
     txtDetails.setPosition(20, 278); 
     txtDetails.setFillColor(sf::Color::Cyan);
     
-    // Preferences Section overlay elements
-    sf::Text txtPrefTitle("PREFERENCES", font, 12); 
-    txtPrefTitle.setPosition(25, 340); 
+    // Preferences Section overlay elements (positioned over map area)
+    sf::Text txtPrefTitle("PREFERENCES", font, 14); 
+    txtPrefTitle.setPosition(MAP_OFFSET_X + 420, 230); 
     txtPrefTitle.setFillColor(sf::Color::Cyan);
+    txtPrefTitle.setStyle(sf::Text::Bold);
     
-    sf::Text txtCompanyLabel("Company (comma-sep):", font, 10); 
-    txtCompanyLabel.setPosition(25, 365); 
+    sf::Text txtCompanyLabel("Preferred Company (comma-sep):", font, 11); 
+    txtCompanyLabel.setPosition(MAP_OFFSET_X + 395, 265); 
     txtCompanyLabel.setFillColor(COL_TEXT_WHITE);
     
-    sf::Text txtAvoidLabel("Avoid Ports (comma-sep):", font, 10); 
-    txtAvoidLabel.setPosition(25, 415); 
+    sf::Text txtAvoidLabel("Avoid Ports (comma-sep):", font, 11); 
+    txtAvoidLabel.setPosition(MAP_OFFSET_X + 395, 325); 
     txtAvoidLabel.setFillColor(COL_TEXT_WHITE);
     
-    sf::Text txtCloseBtn("X", font, 14);
-    txtCloseBtn.setPosition(310, 335);
+    sf::Text txtCloseBtn("X", font, 16);
+    txtCloseBtn.setPosition(MAP_OFFSET_X + 670, 205);
     txtCloseBtn.setFillColor(sf::Color::Red);
+    txtCloseBtn.setStyle(sf::Text::Bold);
     
     // Simulation Section
     sf::Text txtSimSection("SIMULATION", font, 10);
@@ -1636,7 +1644,8 @@ void runGraphics() {
                 // If preferences panel is open, handle clicks specially
                 if (showPreferencesPanel) {
                     // Check if clicking close button (X)
-                    if (pos.x >= 305 && pos.x <= 330 && pos.y >= 330 && pos.y <= 355) {
+                    if (pos.x >= MAP_OFFSET_X + 665 && pos.x <= MAP_OFFSET_X + 695 && 
+                        pos.y >= 200 && pos.y <= 225) {
                         showPreferencesPanel = false;
                     }
                     // Check if clicking Apply button
@@ -1726,7 +1735,8 @@ void runGraphics() {
                         focusCompany = false;
                     }
                     // Click outside panel closes it
-                    else if (pos.x < 15 || pos.x > 335 || pos.y < 330 || pos.y > 510) {
+                    else if (pos.x < MAP_OFFSET_X + 375 || pos.x > MAP_OFFSET_X + 705 || 
+                             pos.y < 195 || pos.y > 425) {
                         showPreferencesPanel = false;
                     }
                     
@@ -1764,36 +1774,37 @@ void runGraphics() {
                         char buff[100];
                         snprintf(buff, sizeof(buff), "Spawned %d ships!", foundJourneysCount);
                         strcpy(statusMessage, buff);
+                        // Unpause simulation to start ship movement
+                        simPaused = false;
                     }
                 }
                 
-                // Ship simulation control buttons
-                if(btnStartSim.isClicked(pos) && foundJourneysCount > 0) {
-                    shipSim.isRunning = true;
-                    shipSim.currentLegIndex = 0;
-                    shipSim.legProgress = 0;
-                    shipSim.status = ShipSimulation::AT_PORT;
-                    strcpy(shipSim.currentPortName, ports[selectedStart].name);
-                    timeSim.day = 1;
-                    timeSim.hour = 0;
-                    timeSim.minute = 0;
-                    timeSim.isPaused = false;
-                    addShipLog("Journey started!", true, animClock);
-                    char msg[100];
-                    sprintf(msg, "⚓ Ship docked at %s", ports[selectedStart].name);
-                    addShipLog(msg, true, animClock);
+                // Simulation control buttons
+                if(btnPlayPause.isClicked(pos)) {
+                    simPaused = !simPaused;
                 }
                 
-                if(btnPauseSim.isClicked(pos)) {
-                    timeSim.isPaused = !timeSim.isPaused;
-                }
-                
-                if(btnSpeedUp.isClicked(pos)) {
-                    shipSim.simulationSpeed = (shipSim.simulationSpeed < 4.0f) ? shipSim.simulationSpeed * 2.0f : 4.0f;
-                }
-                
-                if(btnSpeedDown.isClicked(pos)) {
-                    shipSim.simulationSpeed = (shipSim.simulationSpeed > 0.5f) ? shipSim.simulationSpeed / 2.0f : 0.5f;
+                if(btnSpeedCycle.isClicked(pos)) {
+                    // Cycle through speed options: 1x -> 10x -> 60x -> 120x -> 1x
+                    if (simSpeed == SIM_SPEED_1X) {
+                        simSpeed = SIM_SPEED_10X;
+                    } else if (simSpeed == SIM_SPEED_10X) {
+                        simSpeed = SIM_SPEED_60X;
+                    } else if (simSpeed == SIM_SPEED_60X) {
+                        simSpeed = SIM_SPEED_120X;
+                    } else {
+                        simSpeed = SIM_SPEED_1X;
+                    }
+                    
+                    // Update button label
+                    char speedLabel[SPEED_LABEL_BUFFER_SIZE];
+                    snprintf(speedLabel, sizeof(speedLabel), "Speed: %dx", simSpeed);
+                    btnSpeedCycle.label.setString(speedLabel);
+                    
+                    // Re-center the label
+                    sf::FloatRect textRect = btnSpeedCycle.label.getLocalBounds();
+                    btnSpeedCycle.label.setOrigin(textRect.left + textRect.width/2.0f, textRect.top + textRect.height/2.0f);
+                    btnSpeedCycle.label.setPosition(173 + 157/2.0f, 363 + 24/2.0f);
                 }
                 
                 if(btnClear.isClicked(pos)) {
@@ -1819,9 +1830,15 @@ void runGraphics() {
                         Ship* temp = activeShipsHead;
                         activeShipsHead = activeShipsHead->next;
                         
-                        // Remove ship from port queue if it's waiting
-                        if (temp->state == WAITING_QUEUE && temp->currentPortIndex >= 0 && temp->currentPortIndex < totalPorts) {
-                            if (ports[temp->currentPortIndex].queueCount > 0) {
+                        // Remove ship from port queue if it's waiting or docked
+                        if ((temp->state == WAITING_QUEUE || temp->state == DOCKED) && 
+                            temp->currentPortIndex >= 0 && temp->currentPortIndex < totalPorts) {
+                            // If docked, finish service to free dock slot
+                            if (temp->state == DOCKED) {
+                                finishService(ports[temp->currentPortIndex]);
+                            }
+                            // If waiting in queue, remove from queue
+                            else if (temp->state == WAITING_QUEUE && ports[temp->currentPortIndex].queueCount > 0) {
                                 ports[temp->currentPortIndex].queueCount--;
                                 recomputeEstWait(ports[temp->currentPortIndex]);
                             }
@@ -1855,10 +1872,8 @@ void runGraphics() {
         btnClear.update(mPos, mousePressed);
         btnPreferences.update(mPos, mousePressed); 
         btnApplyPrefs.update(mPos, mousePressed);
-        btnStartSim.update(mPos, mousePressed);
-        btnPauseSim.update(mPos, mousePressed);
-        btnSpeedUp.update(mPos, mousePressed);
-        btnSpeedDown.update(mPos, mousePressed);
+        btnPlayPause.update(mPos, mousePressed);
+        btnSpeedCycle.update(mPos, mousePressed);
         dateInput.update(inputDateString, isTypingDate);
         companyInput.update(tempCompany, focusCompany);
         avoidPortInput.update(tempAvoidPort, focusAvoidPort);
@@ -2051,13 +2066,16 @@ void runGraphics() {
                 window.draw(shipShape);
             } else if (ship->state == WAITING_QUEUE || ship->state == DOCKED) {
                 // Draw ship waiting at port (near the port icon)
+                // Ships in queue appear slightly farther out than docked ships
+                float baseRadius = (ship->state == DOCKED) ? 20.0f : 30.0f;
                 float angle = (float)ship->shipId * 0.5f; // Different angle for each ship
-                float radius = 25.0f;
-                float shipX = ports[ship->currentPortIndex].x + cos(angle) * radius;
-                float shipY = ports[ship->currentPortIndex].y + sin(angle) * radius;
+                float shipX = ports[ship->currentPortIndex].x + cos(angle) * baseRadius;
+                float shipY = ports[ship->currentPortIndex].y + sin(angle) * baseRadius;
                 
                 sf::CircleShape shipShape(4.0f);
-                shipShape.setFillColor(sf::Color(100, 200, 255, 230));
+                // Color coding: Blue for waiting in queue, Cyan for docked
+                sf::Color shipColor = (ship->state == DOCKED) ? sf::Color(0, 255, 255, 230) : sf::Color(100, 200, 255, 230);
+                shipShape.setFillColor(shipColor);
                 shipShape.setOutlineThickness(1.5f);
                 shipShape.setOutlineColor(sf::Color(255, 255, 255, 200));
                 shipShape.setOrigin(4.0f, 4.0f);
@@ -2196,41 +2214,46 @@ void runGraphics() {
         drawOtherShipsInQueue(window);
         
         // Draw time simulation display on TOP of the map (not in sidebar)
-        if (shipSim.isRunning || showJourneys) {
+        // Always show the clock (not just when simulation is running)
+        {
             // Position at top center of map area
             float mapCenterX = MAP_OFFSET_X + (1536 / 2.0f);
             float timeY = 20;
             
             // Background box for time display
-            sf::RectangleShape timeBox(sf::Vector2f(200, 40));
+            sf::RectangleShape timeBox(sf::Vector2f(250, 60));
             timeBox.setFillColor(sf::Color(0, 0, 0, 200));
             timeBox.setOutlineColor(sf::Color::Cyan);
             timeBox.setOutlineThickness(2);
-            timeBox.setPosition(mapCenterX - 100, timeY);
+            timeBox.setPosition(mapCenterX - 125, timeY);
             window.draw(timeBox);
             
-            // Time text
+            // Format and display simulation time
             char timeStr[50];
-            sprintf(timeStr, "Day %d - %02d:%02d", timeSim.day, timeSim.hour, timeSim.minute);
-            sf::Text timeText(timeStr, font, 18);
+            formatSimDateTime(simTimeMinutes, timeStr, sizeof(timeStr));
+            sf::Text timeText(timeStr, font, 16);
             timeText.setFillColor(sf::Color::White);
             timeText.setStyle(sf::Text::Bold);
             
             // Center the text in the box
             sf::FloatRect textBounds = timeText.getLocalBounds();
             timeText.setOrigin(textBounds.width / 2, textBounds.height / 2);
-            timeText.setPosition(mapCenterX, timeY + 20);
+            timeText.setPosition(mapCenterX, timeY + 18);
             window.draw(timeText);
             
-            // Speed indicator below time
-            char speedStr[20];
-            sprintf(speedStr, "Speed: %.1fx", shipSim.simulationSpeed);
-            sf::Text speedText(speedStr, font, 12);
-            speedText.setFillColor(sf::Color(150, 150, 150));
-            sf::FloatRect speedBounds = speedText.getLocalBounds();
-            speedText.setOrigin(speedBounds.width / 2, 0);
-            speedText.setPosition(mapCenterX, timeY + 45);
-            window.draw(speedText);
+            // Pause/speed indicator below time
+            char statusStr[40];
+            if (simPaused) {
+                snprintf(statusStr, sizeof(statusStr), "PAUSED | Speed: %dx", simSpeed);
+            } else {
+                snprintf(statusStr, sizeof(statusStr), "RUNNING | Speed: %dx", simSpeed);
+            }
+            sf::Text statusText(statusStr, font, 12);
+            statusText.setFillColor(simPaused ? sf::Color(255, 150, 150) : sf::Color(150, 255, 150));
+            sf::FloatRect statusBounds = statusText.getLocalBounds();
+            statusText.setOrigin(statusBounds.width / 2, 0);
+            statusText.setPosition(mapCenterX, timeY + 40);
+            window.draw(statusText);
         }
 
         // Draw sidebar and all UI elements with proper layering
@@ -2270,10 +2293,8 @@ void runGraphics() {
         
         // Section 6: Simulation Controls
         window.draw(txtSimSection);
-        btnStartSim.draw(window);
-        btnPauseSim.draw(window);
-        btnSpeedUp.draw(window);
-        btnSpeedDown.draw(window);
+        btnPlayPause.draw(window);
+        btnSpeedCycle.draw(window);
         
         // Section 7: Ship Logs Panel
         sf::RectangleShape logsPanel(sf::Vector2f(310, 600));
@@ -2297,14 +2318,20 @@ void runGraphics() {
             if (yOffset > 990) break; // Don't draw beyond visible area
         }
         
-        // Preferences panel - draw as an OVERLAY on top of everything
+        // Preferences panel - draw as an OVERLAY on top of map (centered)
         if (showPreferencesPanel) {
-            // Semi-transparent background overlay for the entire preferences area
-            sf::RectangleShape prefOverlay(sf::Vector2f(320, 180));
+            // Semi-transparent dark overlay for the entire screen to focus on preferences
+            sf::RectangleShape screenOverlay(sf::Vector2f(1536 + MAP_OFFSET_X, 1024));
+            screenOverlay.setFillColor(sf::Color(0, 0, 0, 150));
+            screenOverlay.setPosition(0, 0);
+            window.draw(screenOverlay);
+            
+            // Preferences panel background
+            sf::RectangleShape prefOverlay(sf::Vector2f(330, 230));
             prefOverlay.setFillColor(sf::Color(20, 25, 35, 250));
-            prefOverlay.setOutlineColor(sf::Color::Cyan);
-            prefOverlay.setOutlineThickness(2);
-            prefOverlay.setPosition(15, 330);
+            prefOverlay.setOutlineColor(sf::Color(0, 180, 255));
+            prefOverlay.setOutlineThickness(3);
+            prefOverlay.setPosition(MAP_OFFSET_X + 380, 195);
             window.draw(prefOverlay);
             
             // Preferences title
