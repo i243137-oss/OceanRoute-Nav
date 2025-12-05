@@ -7,3 +7,9 @@ build/OceanRouteNav
 src/*.exe
 src/*.o
 OceanRouteNav
+
+# Test files copied from build/
+arial.ttf
+map.png
+ports.txt
+Routes.txt
