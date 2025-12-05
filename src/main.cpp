@@ -2890,11 +2890,11 @@ void runGraphics() {
                     
                     // Add each leg's details
                     for (int legIdx = 0; legIdx < journey.legCount && legIdx < MAX_LEGS_TO_DISPLAY; legIdx++) {
-                        char legInfo[150];
+                        char legInfo[200];  // Increased to handle longer port/company names
                         formatLegInfo(journey, legIdx, selectedStart, legInfo, sizeof(legInfo));
                         
-                        // Check if we have space to add this leg info
-                        if (strlen(routeInfo) + strlen(legInfo) + 2 < ROUTE_INFO_BUFFER_SIZE) {
+                        // Check if we have space to add this leg info (with room for \n and null terminator)
+                        if (strlen(routeInfo) + strlen(legInfo) + 2 <= ROUTE_INFO_BUFFER_SIZE - 1) {
                             strcat(routeInfo, "\n");
                             strcat(routeInfo, legInfo);
                         }
@@ -2905,7 +2905,7 @@ void runGraphics() {
                     snprintf(summaryLine, sizeof(summaryLine), "\n\nTotal Duration: %s | Total Cost: $%d",
                              durationStr, journey.totalCost);
                     
-                    if (strlen(routeInfo) + strlen(summaryLine) < ROUTE_INFO_BUFFER_SIZE) {
+                    if (strlen(routeInfo) + strlen(summaryLine) <= ROUTE_INFO_BUFFER_SIZE - 1) {
                         strcat(routeInfo, summaryLine);
                     }
                 }
