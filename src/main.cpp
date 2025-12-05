@@ -325,7 +325,7 @@ int getDaysInMonth(int month, int year) {
 
 // Update time based on ship progress
 void updateSimulatedTime(float deltaTime) {
-    if (shipSim.isRunning && !timeSim.isPaused) {
+    if (!timeSim.isPaused) {
         // Advance simulation time (1 real second = 1 simulated hour)
         // Use floating point to avoid drift
         static float fractionalMinutes = 0.0f;
@@ -1845,6 +1845,7 @@ void runGraphics() {
                 // Simulation control buttons
                 if(btnPlayPause.isClicked(pos)) {
                     simPaused = !simPaused;
+                    timeSim.isPaused = simPaused;
                 }
                 
                 if(btnSpeedCycle.isClicked(pos)) {
