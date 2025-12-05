@@ -128,6 +128,7 @@ bool showPreferencesPanel = false;
 // Route Selection Panel State
 bool showRouteSelectionPanel = false;
 int selectedRouteIndex = -1;
+int confirmedRouteIndex = -1;  // Route that was booked
 
 // Algorithm visualization tracking
 bool* exploredPorts = nullptr;
@@ -254,6 +255,7 @@ sf::Color COL_BTN_DISABLED(80, 80, 80);  // Disabled button color for route sele
 // Route Selection Panel Constants
 const int ROUTE_INFO_BUFFER_SIZE = 500;
 const int COMPANIES_BUFFER_SIZE = 250;
+const int MAX_LEGS_TO_DISPLAY = 5;  // Maximum number of legs to display in route panel
 
 // Route colors for multi-route visualization
 // Note: Array size matches MAX_ROUTES_TO_DISPLAY (5 colors for 5 max routes)
@@ -838,6 +840,24 @@ void getJourneyCompanies(Journey& journey, char* buffer, int bufferSize) {
 // Format date and time for display (e.g., "20/12/2024 06:00")
 void formatDateTime(Date d, Time t, char* buffer, int bufferSize) {
     snprintf(buffer, bufferSize, "%02d/%02d/%04d %02d:%02d", d.day, d.month, d.year, t.hour, t.minute);
+}
+
+// Get origin port name for a leg
+const char* getLegOrigin(Journey& journey, int legIndex, int originPortIndex) {
+    if (legIndex == 0) return ports[originPortIndex].name;
+    return ports[journey.legs[legIndex - 1]->destinationIndex].name;
+}
+
+// Format leg information with port names, company, and times
+void formatLegInfo(Journey& journey, int legIndex, int originPortIndex, char* buffer, int bufferSize) {
+    Route* leg = journey.legs[legIndex];
+    const char* origin = getLegOrigin(journey, legIndex, originPortIndex);
+    const char* dest = ports[leg->destinationIndex].name;
+    
+    snprintf(buffer, bufferSize, "  Leg %d: %s -> %s\n  %s | %02d:%02d -> %02d:%02d",
+             legIndex + 1, origin, dest, leg->company,
+             leg->departureTime.hour, leg->departureTime.minute,
+             leg->arrivalTime.hour, leg->arrivalTime.minute);
 }
 
 void loadData() {
@@ -2000,6 +2020,9 @@ void runGraphics() {
                     
                     // Check if clicking "Book Selected Route" button
                     if (btnBookSelected.isClicked(pos) && selectedRouteIndex >= 0 && selectedRouteIndex < foundJourneysCount) {
+                        // Set confirmed route index to show only this route on map
+                        confirmedRouteIndex = selectedRouteIndex;
+                        
                         // Spawn only the selected ship
                         spawnShip(foundJourneys[selectedRouteIndex]);
                         
@@ -2108,6 +2131,7 @@ void runGraphics() {
                         // Show route selection panel instead of immediately spawning all ships
                         showRouteSelectionPanel = true;
                         selectedRouteIndex = -1;  // Reset selection
+                        confirmedRouteIndex = -1;  // Reset confirmed route
                         strcpy(statusMessage, "Select a route to book");
                     } else {
                         strcpy(statusMessage, "No routes found");
@@ -2275,9 +2299,20 @@ void runGraphics() {
 
         if (showJourneys) {
             // Limit the number of routes displayed to prevent clutter and crashes
-            int maxRoutesToShow = minInt(foundJourneysCount, MAX_ROUTES_TO_DISPLAY);
+            int maxRoutesToShow;
+            int startIndex;
             
-            for(int i=0; i<maxRoutesToShow; i++) {
+            // If a route has been confirmed, show only that route
+            if (confirmedRouteIndex != -1 && confirmedRouteIndex < foundJourneysCount) {
+                maxRoutesToShow = 1;
+                startIndex = confirmedRouteIndex;
+            } else {
+                maxRoutesToShow = minInt(foundJourneysCount, MAX_ROUTES_TO_DISPLAY);
+                startIndex = 0;
+            }
+            
+            for(int idx=0; idx<maxRoutesToShow; idx++) {
+                int i = (confirmedRouteIndex != -1) ? confirmedRouteIndex : idx;
                 Journey& j = foundJourneys[i];
                 if (selectedStart != -1) portInRoute[selectedStart] = true;
                 if (selectedEnd != -1) portInRoute[selectedEnd] = true;
@@ -2291,7 +2326,8 @@ void runGraphics() {
                 }
             }
 
-            for(int i=0; i<maxRoutesToShow; i++) {
+            for(int idx=0; idx<maxRoutesToShow; idx++) {
+                int i = (confirmedRouteIndex != -1) ? confirmedRouteIndex : idx;
                 Journey& j = foundJourneys[i];
                 
                 float totalCycleDuration = 2.0f + (j.legCount * 0.2f);
@@ -2764,8 +2800,8 @@ void runGraphics() {
             window.draw(screenOverlay);
             
             // Route selection panel background (larger than preferences panel)
-            float panelWidth = 550.0f;
-            float panelHeight = 550.0f;
+            float panelWidth = 580.0f;  // Slightly wider for leg details
+            float panelHeight = 620.0f;  // Taller for multi-leg routes
             float panelX = MAP_OFFSET_X + (1536 - panelWidth) / 2.0f;  // Center horizontally
             float panelY = (1024 - panelHeight) / 2.0f;  // Center vertically
             
@@ -2785,17 +2821,24 @@ void runGraphics() {
             window.draw(txtRoutePanelClose);
             btnCancelRoutePanel.init(panelX + panelWidth - 35, panelY + 12, 25, 25, "", font);
             
-            // Display route information for each found journey (max 5 visible at once)
+            // Display route information for each found journey (max 3 visible at once to accommodate multi-leg routes)
             float routeY = panelY + 55;
-            int maxVisibleRoutes = 5;
+            int maxVisibleRoutes = 3;  // Reduced from 5 to accommodate larger multi-leg route boxes
             int displayCount = (foundJourneysCount < maxVisibleRoutes) ? foundJourneysCount : maxVisibleRoutes;
             
             for (int i = 0; i < displayCount && i < 10; i++) {
                 Journey& journey = foundJourneys[i];
                 if (journey.legCount == 0) continue;
                 
-                // Route container
-                float routeBoxHeight = 85.0f;
+                // Calculate route box height based on number of legs
+                // Direct routes: 85px, Multi-leg routes: 95px + (legCount * 35px)
+                float routeBoxHeight;
+                if (journey.legCount == 1) {
+                    routeBoxHeight = 85.0f;
+                } else {
+                    routeBoxHeight = 95.0f + (journey.legCount * 35.0f);
+                }
+                
                 sf::RectangleShape routeBox(sf::Vector2f(panelWidth - 40, routeBoxHeight));
                 routeBox.setPosition(panelX + 20, routeY);
                 
@@ -2814,13 +2857,11 @@ void runGraphics() {
                 // Calculate route information
                 char routeInfo[ROUTE_INFO_BUFFER_SIZE];
                 char durationStr[20];
-                char companiesStr[COMPANIES_BUFFER_SIZE];
                 char departureStr[50];
                 char arrivalStr[50];
                 
                 int duration = calculateVoyageDuration(journey);
                 formatDuration(duration, durationStr, sizeof(durationStr));
-                getJourneyCompanies(journey, companiesStr, sizeof(companiesStr));
                 
                 Route* firstLeg = journey.legs[0];
                 Route* lastLeg = journey.legs[journey.legCount - 1];
@@ -2835,9 +2876,39 @@ void runGraphics() {
                     snprintf(legsText, sizeof(legsText), "%d Legs", journey.legCount);
                 }
                 
-                snprintf(routeInfo, sizeof(routeInfo), 
-                    "Route %d - %s\nCompany: %s\nDeparts: %s | Arrives: %s\nDuration: %s | Cost: $%d",
-                    i + 1, legsText, companiesStr, departureStr, arrivalStr, durationStr, journey.totalCost);
+                // Build route info string with leg details for multi-leg routes
+                if (journey.legCount == 1) {
+                    // Direct route - show simple info
+                    snprintf(routeInfo, sizeof(routeInfo), 
+                        "Route %d - %s\nCompany: %s\nDeparts: %s | Arrives: %s\nDuration: %s | Cost: $%d",
+                        i + 1, legsText, firstLeg->company, departureStr, arrivalStr, durationStr, journey.totalCost);
+                } else {
+                    // Multi-leg route - show header with leg details
+                    snprintf(routeInfo, sizeof(routeInfo), 
+                        "Route %d - %s\n",
+                        i + 1, legsText);
+                    
+                    // Add each leg's details
+                    for (int legIdx = 0; legIdx < journey.legCount && legIdx < MAX_LEGS_TO_DISPLAY; legIdx++) {
+                        char legInfo[200];  // Increased to handle longer port/company names
+                        formatLegInfo(journey, legIdx, selectedStart, legInfo, sizeof(legInfo));
+                        
+                        // Check if we have space to add this leg info (with room for \n and null terminator)
+                        if (strlen(routeInfo) + strlen(legInfo) + 2 <= ROUTE_INFO_BUFFER_SIZE - 1) {
+                            strcat(routeInfo, "\n");
+                            strcat(routeInfo, legInfo);
+                        }
+                    }
+                    
+                    // Add total duration and cost at the end
+                    char summaryLine[100];
+                    snprintf(summaryLine, sizeof(summaryLine), "\n\nTotal Duration: %s | Total Cost: $%d",
+                             durationStr, journey.totalCost);
+                    
+                    if (strlen(routeInfo) + strlen(summaryLine) <= ROUTE_INFO_BUFFER_SIZE - 1) {
+                        strcat(routeInfo, summaryLine);
+                    }
+                }
                 
                 // Display route info text
                 txtRouteInfo[i].setString(routeInfo);
