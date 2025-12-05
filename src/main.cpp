@@ -721,9 +721,11 @@ long long getMinutes(Date d, Time t) {
     
     long long totalMinutes = 0;
     
-    // Add years (from 2024 base)
-    int yearDiff = d.year - 2024;
-    totalMinutes += (long long)yearDiff * 365 * 1440; // 365 days * 1440 minutes/day
+    // Add years (from 2024 base), accounting for leap years
+    for (int y = 2024; y < d.year; y++) {
+        bool isLeap = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0));
+        totalMinutes += (isLeap ? 366 : 365) * 1440;
+    }
     
     // Add months (using actual days per month for accuracy)
     int daysInMonth[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
@@ -1900,14 +1902,22 @@ void runGraphics() {
                     if (foundJourneysCount > 0) {
                         // Find earliest departure time across ALL journeys
                         long long earliestDeparture = LLONG_MAX;
+                        bool foundValidJourney = false;
                         for (int i = 0; i < foundJourneysCount; i++) {
                             if (foundJourneys[i].legCount > 0) {
                                 Route* firstLeg = foundJourneys[i].legs[0];
                                 long long depTime = getMinutes(firstLeg->voyageDate, firstLeg->departureTime);
                                 if (depTime < earliestDeparture) {
                                     earliestDeparture = depTime;
+                                    foundValidJourney = true;
                                 }
                             }
+                        }
+                        
+                        // Only proceed if we found at least one valid journey
+                        if (!foundValidJourney) {
+                            strcpy(statusMessage, "No valid routes found");
+                            continue;  // Skip spawning
                         }
                         
                         // Spawn ships for all found routes
@@ -1921,16 +1931,22 @@ void runGraphics() {
                         
                         // Update timeSim display to match simTimeMinutes
                         // Convert back from absolute minutes to Date/Time for display
-                        // Note: This is a simplified reverse calculation for display only
-                        // The actual simulation uses simTimeMinutes for accuracy
                         long long remaining = simTimeMinutes;
                         
-                        // Extract year
-                        int yearsPassed = (int)(remaining / (365 * 1440));
-                        timeSim.year = 2024 + yearsPassed;
-                        remaining -= (long long)yearsPassed * 365 * 1440;
+                        // Extract year (accounting for leap years)
+                        timeSim.year = 2024;
+                        while (remaining > 0) {
+                            bool isLeap = (timeSim.year % 4 == 0 && (timeSim.year % 100 != 0 || timeSim.year % 400 == 0));
+                            long long yearMinutes = (isLeap ? 366 : 365) * 1440;
+                            if (remaining >= yearMinutes) {
+                                remaining -= yearMinutes;
+                                timeSim.year++;
+                            } else {
+                                break;
+                            }
+                        }
                         
-                        // Extract month (approximate using actual days per month)
+                        // Extract month (using actual days per month)
                         int daysInMonth[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
                         if (timeSim.year % 4 == 0 && (timeSim.year % 100 != 0 || timeSim.year % 400 == 0)) {
                             daysInMonth[2] = 29;
