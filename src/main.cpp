@@ -255,6 +255,7 @@ sf::Color COL_BTN_DISABLED(80, 80, 80);  // Disabled button color for route sele
 // Route Selection Panel Constants
 const int ROUTE_INFO_BUFFER_SIZE = 500;
 const int COMPANIES_BUFFER_SIZE = 250;
+const int MAX_LEGS_TO_DISPLAY = 5;  // Maximum number of legs to display in route panel
 
 // Route colors for multi-route visualization
 // Note: Array size matches MAX_ROUTES_TO_DISPLAY (5 colors for 5 max routes)
@@ -2888,7 +2889,7 @@ void runGraphics() {
                         i + 1, legsText);
                     
                     // Add each leg's details
-                    for (int legIdx = 0; legIdx < journey.legCount && legIdx < 5; legIdx++) {
+                    for (int legIdx = 0; legIdx < journey.legCount && legIdx < MAX_LEGS_TO_DISPLAY; legIdx++) {
                         char legInfo[150];
                         formatLegInfo(journey, legIdx, selectedStart, legInfo, sizeof(legInfo));
                         
