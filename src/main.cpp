@@ -261,6 +261,8 @@ sf::Color COL_BTN_DISABLED(80, 80, 80);  // Disabled button color for route sele
 const int ROUTE_INFO_BUFFER_SIZE = 500;
 const int COMPANIES_BUFFER_SIZE = 250;
 const int MAX_LEGS_TO_DISPLAY = 5;  // Maximum number of legs to display in route panel
+const int PORT_NAME_MAX_LEN = 20;   // Maximum length for port names in display
+const int COMPANY_NAME_MAX_LEN = 15; // Maximum length for company names in display
 
 // Route colors for multi-route visualization
 // Note: Array size matches MAX_ROUTES_TO_DISPLAY (5 colors for 5 max routes)
@@ -855,6 +857,12 @@ const char* getLegOrigin(Journey& journey, int legIndex, int originPortIndex) {
 
 // Truncate string to maxLen, adding "..." if truncated
 void truncateString(char* dest, const char* src, int maxLen) {
+    // Ensure maxLen is at least 4 (3 for "..." + 1 for null terminator)
+    if (maxLen < 4) {
+        if (maxLen > 0) dest[0] = '\0';
+        return;
+    }
+    
     int srcLen = strlen(src);
     if (srcLen <= maxLen) {
         strcpy(dest, src);
@@ -872,10 +880,12 @@ void formatLegInfo(Journey& journey, int legIndex, int originPortIndex, char* bu
     const char* dest = ports[leg->destinationIndex].name;
     
     // Truncate long port/company names
-    char shortOrigin[24], shortDest[24], shortCompany[18];
-    truncateString(shortOrigin, origin, 20);
-    truncateString(shortDest, dest, 20);
-    truncateString(shortCompany, leg->company, 15);
+    char shortOrigin[PORT_NAME_MAX_LEN + 1];
+    char shortDest[PORT_NAME_MAX_LEN + 1];
+    char shortCompany[COMPANY_NAME_MAX_LEN + 1];
+    truncateString(shortOrigin, origin, PORT_NAME_MAX_LEN);
+    truncateString(shortDest, dest, PORT_NAME_MAX_LEN);
+    truncateString(shortCompany, leg->company, COMPANY_NAME_MAX_LEN);
     
     snprintf(buffer, bufferSize, "Leg %d: %s → %s\n  Company: %s\n  Departs: %02d:%02d → Arrives: %02d:%02d",
              legIndex + 1, shortOrigin, shortDest, shortCompany,
@@ -2934,8 +2944,8 @@ void runGraphics() {
                 // Build route info string with leg details for multi-leg routes
                 if (journey.legCount == 1) {
                     // Direct route - show simple info
-                    char shortCompany[18];
-                    truncateString(shortCompany, firstLeg->company, 15);
+                    char shortCompany[COMPANY_NAME_MAX_LEN + 1];
+                    truncateString(shortCompany, firstLeg->company, COMPANY_NAME_MAX_LEN);
                     snprintf(routeInfo, sizeof(routeInfo), 
                         "Route %d - %s\n\nCompany: %s\nDeparts: %s\nArrives: %s\n\nDuration: %s\nCost: $%d",
                         i + 1, legsText, shortCompany, departureStr, arrivalStr, durationStr, journey.totalCost);
