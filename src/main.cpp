@@ -9,6 +9,9 @@
 
 using namespace std;
 
+// Debug flag for route evaluation logging
+#define DEBUG_ROUTE_EVALUATION 1
+
 // Cross-platform case-insensitive string comparison
 #ifdef _WIN32
     #define strcasecmp _stricmp
@@ -468,11 +471,15 @@ void dijkstra_shortest_cost_scheduled(int source, int destination, Date userDate
         while (r != nullptr) {
             int v = r->destinationIndex;
             
+            #if DEBUG_ROUTE_EVALUATION
             printf("DEBUG: Evaluating route %s -> %s, Company: %s\n", 
                    ports[u].name, ports[v].name, r->company);
             
             bool companyOk = isCompanyPreferred(r->company);
             printf("DEBUG: Company preferred: %s\n", companyOk ? "YES" : "NO");
+            #else
+            bool companyOk = isCompanyPreferred(r->company);
+            #endif
             
             // Apply preference filters
             if (!isPortAvoided(v) && companyOk) {
@@ -495,13 +502,19 @@ void dijkstra_shortest_cost_scheduled(int source, int destination, Date userDate
                         arrivalTimes[v] = routeArrivalTime; // FIX: Store actual arrival time
                         exploredPorts[v] = true;
                         pq.push(v, newCost);
+                        #if DEBUG_ROUTE_EVALUATION
                         printf("DEBUG: Route accepted! Cost: %lld\n", newCost);
+                        #endif
                     }
                 } else {
+                    #if DEBUG_ROUTE_EVALUATION
                     printf("DEBUG: Route rejected (timing constraints)\n");
+                    #endif
                 }
             } else {
+                #if DEBUG_ROUTE_EVALUATION
                 printf("DEBUG: Route rejected (port avoided or company not preferred)\n");
+                #endif
             }
             r = r->next;
         }
@@ -637,11 +650,15 @@ void findScheduledRoutes(int u, int target, int depth, long long currentArrivalT
     
     while (r != nullptr) {
         int v = r->destinationIndex;
+        #if DEBUG_ROUTE_EVALUATION
         printf("DEBUG DFS: Checking %s -> %s, Company: %s\n", 
                ports[u].name, ports[v].name, r->company);
+        #endif
         
         if (!visited[v] && !isPortAvoided(v) && isCompanyPreferred(r->company)) {
+            #if DEBUG_ROUTE_EVALUATION
             printf("DEBUG DFS: Route matches preferences\n");
+            #endif
             long long departureTime = getMinutes(r->voyageDate, r->departureTime);
             long long requiredDepartureTime = currentArrivalTime + 120;
             long long arrivalTime = getMinutes(r->voyageDate, r->arrivalTime);
@@ -653,8 +670,10 @@ void findScheduledRoutes(int u, int target, int depth, long long currentArrivalT
                 findScheduledRoutes(v, target, depth + 1, arrivalTime, currentCost + r->cost, pathSoFar);
             }
         } else {
+            #if DEBUG_ROUTE_EVALUATION
             printf("DEBUG DFS: Route rejected - visited:%d, avoided:%d, companyOk:%d\n",
                    visited[v], isPortAvoided(v), isCompanyPreferred(r->company));
+            #endif
         }
         r = r->next;
     }
