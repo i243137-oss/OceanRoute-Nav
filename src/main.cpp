@@ -125,6 +125,10 @@ char pathDetails[100] = "";
 bool isTypingDate = false;
 bool showPreferencesPanel = false;
 
+// Route Selection Panel State
+bool showRouteSelectionPanel = false;
+int selectedRouteIndex = -1;
+
 // Algorithm visualization tracking
 bool* exploredPorts = nullptr;
 bool* finalPathPorts = nullptr;
@@ -245,6 +249,11 @@ sf::Color COL_SEPARATOR(70, 70, 75);
 sf::Color COL_SECTION_HEADER(0, 180, 255);
 sf::Color COL_STATUS_SUCCESS(100, 255, 100);
 sf::Color COL_STATUS_WARNING(255, 200, 100);
+sf::Color COL_BTN_DISABLED(80, 80, 80);  // Disabled button color for route selection
+
+// Route Selection Panel Constants
+const int ROUTE_INFO_BUFFER_SIZE = 500;
+const int COMPANIES_BUFFER_SIZE = 250;
 
 // Route colors for multi-route visualization
 // Note: Array size matches MAX_ROUTES_TO_DISPLAY (5 colors for 5 max routes)
@@ -776,6 +785,59 @@ Date parseDate(char* s) {
     while(s[i] != '\0') { val = val * 10 + (s[i] - '0'); i++; }
     if (val > 0) d.year = val;
     return d;
+}
+
+// ==========================================
+// Route Selection Helper Functions
+// ==========================================
+
+// Calculate voyage duration in minutes for a journey
+int calculateVoyageDuration(Journey& journey) {
+    if (journey.legCount == 0) return 0;
+    long long departure = getMinutes(journey.legs[0]->voyageDate, journey.legs[0]->departureTime);
+    Route* lastLeg = journey.legs[journey.legCount - 1];
+    long long arrival = getMinutes(lastLeg->voyageDate, lastLeg->arrivalTime);
+    // Calculate duration (getMinutes returns absolute time, so this handles multi-day journeys correctly)
+    long long duration = arrival - departure;
+    // Validate that duration is non-negative (arrival should be after departure)
+    if (duration < 0) {
+        // This shouldn't happen with correct data, but return 0 as a safe fallback
+        return 0;
+    }
+    return (int)duration;
+}
+
+// Format duration as string (e.g., "14h 30m")
+void formatDuration(int minutes, char* buffer, int bufferSize) {
+    int hours = minutes / 60;
+    int mins = minutes % 60;
+    snprintf(buffer, bufferSize, "%dh %02dm", hours, mins);
+}
+
+// Get all companies for a journey as comma-separated string
+void getJourneyCompanies(Journey& journey, char* buffer, int bufferSize) {
+    buffer[0] = '\0';
+    for (int i = 0; i < journey.legCount; i++) {
+        int currentLen = strlen(buffer);
+        int companyLen = strlen(journey.legs[i]->company);
+        int separatorLen = (i > 0) ? 2 : 0;  // ", " if not first
+        
+        // Check if there's enough space for separator + company name + null terminator
+        if (currentLen + separatorLen + companyLen + 1 < bufferSize) {
+            if (i > 0) {
+                strcat(buffer, ", ");
+            }
+            strcat(buffer, journey.legs[i]->company);
+        } else {
+            // If we can't fit everything, truncate gracefully
+            break;
+        }
+    }
+}
+
+// Format date and time for display (e.g., "20/12/2024 06:00")
+void formatDateTime(Date d, Time t, char* buffer, int bufferSize) {
+    snprintf(buffer, bufferSize, "%02d/%02d/%04d %02d:%02d", d.day, d.month, d.year, t.hour, t.minute);
 }
 
 void loadData() {
@@ -1657,7 +1719,7 @@ void runGraphics() {
     Button btnSearch, btnDijkstra, btnBook, btnClear;
     btnSearch.init(20, 138, 310, 28, "Find Routes (Date)", font);
     btnDijkstra.init(20, 170, 310, 28, "Find Cheapest Route", font);
-    btnBook.init(20, 202, 310, 28, "Book Route (All)", font);
+    btnBook.init(20, 202, 310, 28, "Book Route", font);
     btnClear.init(250, 238, 80, 20, "Reset", font);
     
     Button btnPreferences, btnApplyPrefs;
@@ -1727,6 +1789,27 @@ void runGraphics() {
     txtCloseBtn.setPosition(MAP_OFFSET_X + 670, 205);
     txtCloseBtn.setFillColor(sf::Color::Red);
     txtCloseBtn.setStyle(sf::Text::Bold);
+    
+    // Route Selection Panel overlay elements (positioned over map area)
+    Button btnSelectRoute[10];  // Up to 10 route selection buttons
+    Button btnBookSelected;     // "Book Selected Route" button
+    Button btnCancelRoutePanel; // Close/Cancel button
+    sf::Text txtRouteInfo[10];  // Route information display
+    
+    // Initialize route selection panel components
+    for (int i = 0; i < 10; i++) {
+        txtRouteInfo[i].setFont(font);
+        txtRouteInfo[i].setCharacterSize(11);
+        txtRouteInfo[i].setFillColor(COL_TEXT_WHITE);
+    }
+    
+    sf::Text txtRoutePanelTitle("SELECT A ROUTE", font, 16);
+    txtRoutePanelTitle.setFillColor(COL_ACCENT);
+    txtRoutePanelTitle.setStyle(sf::Text::Bold);
+    
+    sf::Text txtRoutePanelClose("X", font, 16);
+    txtRoutePanelClose.setFillColor(sf::Color::Red);
+    txtRoutePanelClose.setStyle(sf::Text::Bold);
     
     // Simulation Section
     sf::Text txtSimSection("SIMULATION", font, 10);
@@ -1903,6 +1986,101 @@ void runGraphics() {
                     continue;
                 }
                 
+                // Handle Route Selection Panel clicks
+                if (showRouteSelectionPanel) {
+                    // Check if clicking route selection buttons
+                    bool clickedRouteButton = false;
+                    for (int i = 0; i < foundJourneysCount && i < 10; i++) {
+                        if (btnSelectRoute[i].isClicked(pos)) {
+                            selectedRouteIndex = i;
+                            clickedRouteButton = true;
+                            break;
+                        }
+                    }
+                    
+                    // Check if clicking "Book Selected Route" button
+                    if (btnBookSelected.isClicked(pos) && selectedRouteIndex >= 0 && selectedRouteIndex < foundJourneysCount) {
+                        // Spawn only the selected ship
+                        spawnShip(foundJourneys[selectedRouteIndex]);
+                        
+                        // Set simulation time to the selected route's departure time
+                        if (foundJourneys[selectedRouteIndex].legCount > 0) {
+                            Route* firstLeg = foundJourneys[selectedRouteIndex].legs[0];
+                            long long departureTime = getMinutes(firstLeg->voyageDate, firstLeg->departureTime);
+                            simTimeMinutes = departureTime;
+                            
+                            // Update timeSim display to match simTimeMinutes
+                            long long remaining = simTimeMinutes;
+                            
+                            // Extract year (accounting for leap years)
+                            timeSim.year = 2024;
+                            while (remaining > 0) {
+                                long long yearMinutes = (isLeapYear(timeSim.year) ? 366 : 365) * 1440;
+                                if (remaining >= yearMinutes) {
+                                    remaining -= yearMinutes;
+                                    timeSim.year++;
+                                } else {
+                                    break;
+                                }
+                            }
+                            
+                            // Extract month (using actual days per month)
+                            int daysInMonth[13];
+                            getDaysInMonth(timeSim.year, daysInMonth);
+                            
+                            timeSim.month = 1;
+                            while (timeSim.month <= 12) {
+                                long long monthMinutes = daysInMonth[timeSim.month] * 1440;
+                                if (remaining >= monthMinutes) {
+                                    remaining -= monthMinutes;
+                                    timeSim.month++;
+                                } else {
+                                    break;
+                                }
+                            }
+                            if (timeSim.month > 12) {
+                                timeSim.month = 12;
+                            }
+                            
+                            // Extract day (add 1 because day 1 is the first day)
+                            timeSim.day = (int)(remaining / 1440) + 1;
+                            remaining = remaining % 1440;
+                            
+                            // Extract hour and minute
+                            timeSim.hour = (int)(remaining / 60);
+                            timeSim.minute = (int)(remaining % 60);
+                            
+                            // Safety checks
+                            if (timeSim.month < 1) timeSim.month = 1;
+                            if (timeSim.day < 1) timeSim.day = 1;
+                            
+                            timeSim.isPaused = false;
+                            simPaused = false;
+                        }
+                        
+                        strcpy(statusMessage, "Route booked!");
+                        showRouteSelectionPanel = false;
+                        selectedRouteIndex = -1;
+                    }
+                    
+                    // Check if clicking cancel/close button
+                    if (btnCancelRoutePanel.isClicked(pos)) {
+                        showRouteSelectionPanel = false;
+                        selectedRouteIndex = -1;
+                        strcpy(statusMessage, "Booking cancelled");
+                    }
+                    
+                    // Click outside panel closes it
+                    if (!clickedRouteButton && (pos.x < MAP_OFFSET_X + 350 || pos.x > MAP_OFFSET_X + 900 || 
+                                                 pos.y < 150 || pos.y > 700)) {
+                        showRouteSelectionPanel = false;
+                        selectedRouteIndex = -1;
+                    }
+                    
+                    // Don't process other clicks when panel is open
+                    continue;
+                }
+                
                 if(dateInput.isClicked(pos)) isTypingDate = true; else isTypingDate = false;
                 if(companyInput.isClicked(pos)) focusCompany = true; else focusCompany = false;
                 if(avoidPortInput.isClicked(pos)) focusAvoidPort = true; else focusAvoidPort = false;
@@ -1927,97 +2105,12 @@ void runGraphics() {
                     findAllAvailableRoutes(selectedStart, selectedEnd, parseDate(inputDateString));
                     
                     if (foundJourneysCount > 0) {
-                        // Find earliest departure time across ALL journeys
-                        long long earliestDeparture = LLONG_MAX;
-                        bool foundValidJourney = false;
-                        for (int i = 0; i < foundJourneysCount; i++) {
-                            if (foundJourneys[i].legCount > 0) {
-                                Route* firstLeg = foundJourneys[i].legs[0];
-                                long long depTime = getMinutes(firstLeg->voyageDate, firstLeg->departureTime);
-                                if (depTime < earliestDeparture) {
-                                    earliestDeparture = depTime;
-                                    foundValidJourney = true;
-                                }
-                            }
-                        }
-                        
-                        // Only proceed if we found at least one valid journey
-                        if (!foundValidJourney) {
-                            strcpy(statusMessage, "No valid routes found");
-                            continue;  // Skip spawning
-                        }
-                        
-                        // Spawn ships for all found routes
-                        for (int i = 0; i < foundJourneysCount; i++) {
-                            spawnShip(foundJourneys[i]);
-                        }
-                        
-                        // Set simulation time to the earliest departure time
-                        // This ensures all ships can depart when their scheduled time arrives
-                        simTimeMinutes = earliestDeparture;
-                        
-                        // Update timeSim display to match simTimeMinutes
-                        // Convert back from absolute minutes to Date/Time for display
-                        long long remaining = simTimeMinutes;
-                        
-                        // Extract year (accounting for leap years)
-                        timeSim.year = 2024;
-                        while (remaining > 0) {
-                            long long yearMinutes = (isLeapYear(timeSim.year) ? 366 : 365) * 1440;
-                            if (remaining >= yearMinutes) {
-                                remaining -= yearMinutes;
-                                timeSim.year++;
-                            } else {
-                                break;
-                            }
-                        }
-                        
-                        // Extract month (using actual days per month)
-                        int daysInMonth[13];
-                        getDaysInMonth(timeSim.year, daysInMonth);
-                        
-                        timeSim.month = 1;
-                        while (timeSim.month <= 12) {
-                            long long monthMinutes = daysInMonth[timeSim.month] * 1440;
-                            if (remaining >= monthMinutes) {
-                                remaining -= monthMinutes;
-                                timeSim.month++;
-                            } else {
-                                break;
-                            }
-                        }
-                        // If month exceeds 12, it indicates a bug in the conversion logic
-                        if (timeSim.month > 12) {
-                            printf("ERROR: Month exceeded 12 in time conversion. This is a bug!\n");
-                            timeSim.month = 12;
-                        }
-                        
-                        // Extract day (add 1 because day 1 is the first day)
-                        timeSim.day = (int)(remaining / 1440) + 1;
-                        remaining = remaining % 1440;
-                        
-                        // Extract hour and minute
-                        timeSim.hour = (int)(remaining / 60);
-                        timeSim.minute = (int)(remaining % 60);
-                        
-                        // Safety checks
-                        if (timeSim.month < 1) timeSim.month = 1;
-                        if (timeSim.day < 1) timeSim.day = 1;
-                        
-                        #if DEBUG_ROUTE_EVALUATION
-                        // Debug: Print to verify correct time initialization
-                        // printf("[DEBUG] Simulation initialized: %02d/%02d/%04d %02d:%02d (simTimeMinutes=%lld)\n",
-                        //        timeSim.day, timeSim.month, timeSim.year,
-                        //        timeSim.hour, timeSim.minute, simTimeMinutes);
-                        #endif
-                        
-                        timeSim.isPaused = false;
-                        
-                        char buff[100];
-                        snprintf(buff, sizeof(buff), "Spawned %d ships!", foundJourneysCount);
-                        strcpy(statusMessage, buff);
-                        // Unpause simulation to start ship movement
-                        simPaused = false;
+                        // Show route selection panel instead of immediately spawning all ships
+                        showRouteSelectionPanel = true;
+                        selectedRouteIndex = -1;  // Reset selection
+                        strcpy(statusMessage, "Select a route to book");
+                    } else {
+                        strcpy(statusMessage, "No routes found");
                     }
                 }
                 
@@ -2134,6 +2227,16 @@ void runGraphics() {
         btnApplyPrefs.update(mPos, mousePressed);
         btnPlayPause.update(mPos, mousePressed);
         btnSpeedCycle.update(mPos, mousePressed);
+        
+        // Update route selection panel buttons if panel is visible
+        if (showRouteSelectionPanel) {
+            for (int i = 0; i < foundJourneysCount && i < 10; i++) {
+                btnSelectRoute[i].update(mPos, mousePressed);
+            }
+            btnBookSelected.update(mPos, mousePressed);
+            btnCancelRoutePanel.update(mPos, mousePressed);
+        }
+        
         dateInput.update(inputDateString, isTypingDate);
         companyInput.update(tempCompany, focusCompany);
         avoidPortInput.update(tempAvoidPort, focusAvoidPort);
@@ -2650,6 +2753,121 @@ void runGraphics() {
             
             // Apply button
             btnApplyPrefs.draw(window);
+        }
+        
+        // Route Selection Panel - draw as an OVERLAY on top of map
+        if (showRouteSelectionPanel) {
+            // Semi-transparent dark overlay for the entire screen
+            sf::RectangleShape screenOverlay(sf::Vector2f(1536 + MAP_OFFSET_X, 1024));
+            screenOverlay.setFillColor(sf::Color(0, 0, 0, 150));
+            screenOverlay.setPosition(0, 0);
+            window.draw(screenOverlay);
+            
+            // Route selection panel background (larger than preferences panel)
+            float panelWidth = 550.0f;
+            float panelHeight = 550.0f;
+            float panelX = MAP_OFFSET_X + (1536 - panelWidth) / 2.0f;  // Center horizontally
+            float panelY = (1024 - panelHeight) / 2.0f;  // Center vertically
+            
+            sf::RectangleShape routePanel(sf::Vector2f(panelWidth, panelHeight));
+            routePanel.setFillColor(sf::Color(20, 25, 35, 250));
+            routePanel.setOutlineColor(sf::Color(0, 180, 255));
+            routePanel.setOutlineThickness(3);
+            routePanel.setPosition(panelX, panelY);
+            window.draw(routePanel);
+            
+            // Panel title
+            txtRoutePanelTitle.setPosition(panelX + 20, panelY + 15);
+            window.draw(txtRoutePanelTitle);
+            
+            // Close button (X) in top right corner
+            txtRoutePanelClose.setPosition(panelX + panelWidth - 30, panelY + 15);
+            window.draw(txtRoutePanelClose);
+            btnCancelRoutePanel.init(panelX + panelWidth - 35, panelY + 12, 25, 25, "", font);
+            
+            // Display route information for each found journey (max 5 visible at once)
+            float routeY = panelY + 55;
+            int maxVisibleRoutes = 5;
+            int displayCount = (foundJourneysCount < maxVisibleRoutes) ? foundJourneysCount : maxVisibleRoutes;
+            
+            for (int i = 0; i < displayCount && i < 10; i++) {
+                Journey& journey = foundJourneys[i];
+                if (journey.legCount == 0) continue;
+                
+                // Route container
+                float routeBoxHeight = 85.0f;
+                sf::RectangleShape routeBox(sf::Vector2f(panelWidth - 40, routeBoxHeight));
+                routeBox.setPosition(panelX + 20, routeY);
+                
+                // Highlight selected route
+                if (i == selectedRouteIndex) {
+                    routeBox.setFillColor(sf::Color(0, 100, 180, 200));
+                    routeBox.setOutlineColor(sf::Color(0, 200, 255));
+                    routeBox.setOutlineThickness(2);
+                } else {
+                    routeBox.setFillColor(sf::Color(30, 35, 45, 200));
+                    routeBox.setOutlineColor(sf::Color(60, 65, 75));
+                    routeBox.setOutlineThickness(1);
+                }
+                window.draw(routeBox);
+                
+                // Calculate route information
+                char routeInfo[ROUTE_INFO_BUFFER_SIZE];
+                char durationStr[20];
+                char companiesStr[COMPANIES_BUFFER_SIZE];
+                char departureStr[50];
+                char arrivalStr[50];
+                
+                int duration = calculateVoyageDuration(journey);
+                formatDuration(duration, durationStr, sizeof(durationStr));
+                getJourneyCompanies(journey, companiesStr, sizeof(companiesStr));
+                
+                Route* firstLeg = journey.legs[0];
+                Route* lastLeg = journey.legs[journey.legCount - 1];
+                formatDateTime(firstLeg->voyageDate, firstLeg->departureTime, departureStr, sizeof(departureStr));
+                formatDateTime(lastLeg->voyageDate, lastLeg->arrivalTime, arrivalStr, sizeof(arrivalStr));
+                
+                // Format route info text
+                char legsText[30];
+                if (journey.legCount == 1) {
+                    strcpy(legsText, "Direct");
+                } else {
+                    snprintf(legsText, sizeof(legsText), "%d Legs", journey.legCount);
+                }
+                
+                snprintf(routeInfo, sizeof(routeInfo), 
+                    "Route %d - %s\nCompany: %s\nDeparts: %s | Arrives: %s\nDuration: %s | Cost: $%d",
+                    i + 1, legsText, companiesStr, departureStr, arrivalStr, durationStr, journey.totalCost);
+                
+                // Display route info text
+                txtRouteInfo[i].setString(routeInfo);
+                txtRouteInfo[i].setPosition(panelX + 30, routeY + 8);
+                txtRouteInfo[i].setCharacterSize(10);
+                window.draw(txtRouteInfo[i]);
+                
+                // Select button
+                btnSelectRoute[i].init(panelX + panelWidth - 100, routeY + routeBoxHeight - 30, 80, 25, "SELECT", font);
+                btnSelectRoute[i].draw(window);
+                
+                routeY += routeBoxHeight + 10;
+            }
+            
+            // "Book Selected Route" button at bottom
+            btnBookSelected.init(panelX + (panelWidth - 200) / 2, panelY + panelHeight - 50, 200, 35, "Book Selected Route", font);
+            
+            // Disable button if no route selected
+            if (selectedRouteIndex < 0) {
+                btnBookSelected.shape.setFillColor(COL_BTN_DISABLED);
+            }
+            btnBookSelected.draw(window);
+            
+            // Show message if no route selected
+            if (selectedRouteIndex < 0) {
+                sf::Text txtSelectPrompt("Select a route to book", font, 11);
+                txtSelectPrompt.setPosition(panelX + panelWidth / 2 - 70, panelY + panelHeight - 80);
+                txtSelectPrompt.setFillColor(COL_TEXT_MUTED);
+                window.draw(txtSelectPrompt);
+            }
         }
         
         window.display();
