@@ -103,7 +103,7 @@ const int MAX_ROUTES_TO_DISPLAY = 5;
 const int MAX_ROUTES_FOR_GLOW = 3;
 const float GLOW_OFFSET = 2.0f;
 const int MAX_QUEUE_SHIPS_DISPLAY = 3; // Maximum number of animated ships to show in queue visualization
-const int DEFAULT_DOCK_SLOTS = 1;      // Default number of docking slots per port (reduced to surface contention)
+const int DEFAULT_DOCK_SLOTS = 5;      // Default number of docking slots per port
 const int MAX_PORTS = 100;             // Maximum number of ports supported
 const float SIM_SPEED_TO_MULTIPLIER = 60.0f; // Conversion factor: simSpeed (minutes/second) to speed multiplier (1x, 2x, etc.)
 
@@ -1321,10 +1321,11 @@ void spawnShip(Journey& journey) {
     ship->currentPortIndex = ship->originIndex;
     ship->nextDepartureMin = ship->departureTimeMin;
     
-    // Ship starts waiting at origin port until departure time
-    // Join port queue - ship arrives at origin
-    shipArrival(ports[ship->originIndex]);
-    ship->state = WAITING_QUEUE;
+    // Ship starts at origin port already docked, waiting for departure time
+    // Since the ship is already at the origin port (not arriving), it should be DOCKED
+    // directly rather than joining the queue
+    startService(ports[ship->originIndex]);
+    ship->state = DOCKED;
     
     // Log ship booking/spawn with detailed timing information
     char logMsg[200];
