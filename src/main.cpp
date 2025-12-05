@@ -998,7 +998,10 @@ void runGraphics() {
         for(int i=0; i<totalPorts; i++) portInRoute[i] = false;
 
         if (showJourneys) {
-            for(int i=0; i<foundJourneysCount; i++) {
+            // Limit the number of routes displayed to prevent clutter and crashes
+            int maxRoutesToShow = foundJourneysCount < 5 ? foundJourneysCount : 5;
+            
+            for(int i=0; i<maxRoutesToShow; i++) {
                 Journey& j = foundJourneys[i];
                 if (selectedStart != -1) portInRoute[selectedStart] = true;
                 if (selectedEnd != -1) portInRoute[selectedEnd] = true;
@@ -1012,7 +1015,7 @@ void runGraphics() {
                 }
             }
 
-            for(int i=0; i<foundJourneysCount; i++) {
+            for(int i=0; i<maxRoutesToShow; i++) {
                 Journey& j = foundJourneys[i];
                 
                 float totalCycleDuration = 2.0f + (j.legCount * 0.2f);
@@ -1023,13 +1026,22 @@ void runGraphics() {
                 float legProgress = legProgressInCycle - (float)activeLeg;
                 if (legProgress > 1.0f) legProgress = 1.0f;
                 
-                float offset = (i - foundJourneysCount/2.0f) * 5.0f;
+                float offset = (i - maxRoutesToShow/2.0f) * 8.0f;
 
+                // Assign different colors to different routes for better distinction
+                sf::Color routeColors[] = {
+                    sf::Color(0, 255, 100, 200),    // Green
+                    sf::Color(255, 200, 0, 200),    // Gold
+                    sf::Color(0, 200, 255, 200),    // Cyan
+                    sf::Color(255, 100, 200, 200),  // Pink
+                    sf::Color(200, 100, 255, 200)   // Purple
+                };
+                
                 sf::Color pathColor;
                 if (j.isDijkstra) {
                     pathColor = sf::Color(0, 150, 255, 220);
                 } else if (bookingMode == 3) {
-                    pathColor = sf::Color(255, 0, 200, 200);
+                    pathColor = routeColors[i % 5];
                 } else {
                     pathColor = j.isDirect ? sf::Color(255, 215, 0, 220) : sf::Color(0, 255, 0, 180);
                 }
@@ -1060,25 +1072,21 @@ void runGraphics() {
                             legColor.a = 50;
                         }
                         
-                        // Draw glow effect for filtered routes
-                        if (userPrefs.usePreferences) {
-                            sf::Color glowColor = sf::Color(255, 200, 0, 80); // Golden glow for filtered routes
+                        // Draw glow effect only for single route or filtered routes with few results
+                        if (userPrefs.usePreferences && maxRoutesToShow <= 3) {
+                            sf::Color glowColor = sf::Color(255, 200, 0, 60); // Lower alpha for less intensity
                             
-                            // Draw glow (thicker line effect using fewer offset lines for performance)
-                            for (int offset_val = -1; offset_val <= 1; offset_val++) {
-                                sf::Vertex glowLine[] = {
-                                    sf::Vertex(sf::Vector2f(p1.x + offset_val, p1.y), glowColor),
-                                    sf::Vertex(sf::Vector2f(p2.x + offset_val, p2.y), glowColor)
-                                };
-                                window.draw(glowLine, 2, sf::Lines);
-                                
-                                // Draw horizontal offset for thicker appearance
-                                sf::Vertex glowLineY[] = {
-                                    sf::Vertex(sf::Vector2f(p1.x, p1.y + offset_val), glowColor),
-                                    sf::Vertex(sf::Vector2f(p2.x, p2.y + offset_val), glowColor)
-                                };
-                                window.draw(glowLineY, 2, sf::Lines);
-                            }
+                            // Draw just 2 glow lines (above and below) instead of 6
+                            sf::Vertex glowLine1[] = {
+                                sf::Vertex(sf::Vector2f(p1.x, p1.y - 2), glowColor),
+                                sf::Vertex(sf::Vector2f(p2.x, p2.y - 2), glowColor)
+                            };
+                            sf::Vertex glowLine2[] = {
+                                sf::Vertex(sf::Vector2f(p1.x, p1.y + 2), glowColor),
+                                sf::Vertex(sf::Vector2f(p2.x, p2.y + 2), glowColor)
+                            };
+                            window.draw(glowLine1, 2, sf::Lines);
+                            window.draw(glowLine2, 2, sf::Lines);
                         }
 
                         sf::Vertex line[] = {
@@ -1087,7 +1095,8 @@ void runGraphics() {
                         };
                         window.draw(line, 2, sf::Lines);
 
-                        if (k == activeLeg && legProgress >= 0.0f && legProgress <= 1.0f) {
+                        // Only animate particle on first route to reduce draw calls
+                        if (i == 0 && k == activeLeg && legProgress >= 0.0f && legProgress <= 1.0f) {
                             sf::Vector2f particlePos = p1 + (p2 - p1) * legProgress;
                             sf::CircleShape particle(5);
                             particle.setFillColor(sf::Color::White);
