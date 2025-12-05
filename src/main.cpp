@@ -274,6 +274,7 @@ struct InputBox {
     sf::Text displayText;
     sf::Text placeholderText;
     bool isFocused = false;
+    bool hasContent = false;  // Cache to avoid repeated string length checks
     char placeholder[50];
 
     void init(float x, float y, float w, float h, sf::Font& font, const char* placeholderStr = "") {
@@ -286,18 +287,24 @@ struct InputBox {
         displayText.setFillColor(sf::Color::Black);
         displayText.setPosition(x + 5, y + 5);
         
-        // Setup placeholder
-        strcpy(placeholder, placeholderStr);
+        // Setup placeholder with bounds checking
+        if (placeholderStr != nullptr) {
+            strncpy(placeholder, placeholderStr, sizeof(placeholder) - 1);
+            placeholder[sizeof(placeholder) - 1] = '\0';
+        } else {
+            placeholder[0] = '\0';
+        }
         placeholderText.setFont(font);
         placeholderText.setCharacterSize(14);
         placeholderText.setFillColor(COL_INPUT_PLACEHOLDER);
-        placeholderText.setString(placeholderStr);
+        placeholderText.setString(placeholder);
         placeholderText.setPosition(x + 5, y + 5);
     }
 
     void update(const char* content, bool focus) {
         displayText.setString(content);
         isFocused = focus;
+        hasContent = (strlen(content) > 0);  // Cache content check
         if (isFocused) {
             shape.setOutlineThickness(2);
             shape.setFillColor(COL_INPUT_FOCUS);
@@ -311,7 +318,7 @@ struct InputBox {
     void draw(sf::RenderWindow& window) {
         window.draw(shape);
         // Show placeholder if input is empty and not focused
-        if (strlen(displayText.getString().toAnsiString().c_str()) == 0 && !isFocused && strlen(placeholder) > 0) {
+        if (!hasContent && !isFocused && placeholder[0] != '\0') {
             window.draw(placeholderText);
         } else {
             window.draw(displayText);
