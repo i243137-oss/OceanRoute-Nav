@@ -218,11 +218,20 @@ public:
 const int DEFAULT_SERVICE_TIME_MINUTES = 240; // 4 hours average service time per ship
 
 // Recompute estimated wait time for a port
-// Formula: ((queueCount + inServiceCount - dockSlots) * avgServiceMinutes), clamped at >= 0
+// Formula: For a new arrival, wait time = queueCount * avgServiceTime if docks are full
+// If docks have space, wait is 0. This gives a simple approximation of wait time.
 inline void recomputeEstWait(Port& port) {
-    int occupancy = port.queueCount + port.inServiceCount - port.dockSlots;
-    if (occupancy < 0) occupancy = 0;
-    port.estWaitMinutes = occupancy * DEFAULT_SERVICE_TIME_MINUTES;
+    // If there's queue and all docks are occupied, new arrivals must wait
+    if (port.inServiceCount >= port.dockSlots && port.queueCount > 0) {
+        // Wait time is queue size times average service time
+        port.estWaitMinutes = port.queueCount * DEFAULT_SERVICE_TIME_MINUTES;
+    } else if (port.inServiceCount >= port.dockSlots) {
+        // Docks full but no queue - minimal wait for next slot
+        port.estWaitMinutes = DEFAULT_SERVICE_TIME_MINUTES;
+    } else {
+        // Docks available - no wait
+        port.estWaitMinutes = 0;
+    }
 }
 
 // Ship arrives at port and joins queue

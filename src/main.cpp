@@ -109,6 +109,9 @@ const int DEFAULT_DOCK_SLOTS = 2;      // Default number of docking slots per po
 const int DEMO_QUEUE_COUNT = 2;        // Number of ships waiting in Singapore demo queue
 const int DEMO_SERVICE_COUNT = 2;      // Number of ships being serviced in Singapore demo
 
+// UI constants
+const int QUEUE_LABEL_BUFFER_SIZE = 50; // Buffer size for queue label text
+
 int selectedStart = -1;
 int selectedEnd = -1;
 int bookingMode = 0;
@@ -1236,8 +1239,15 @@ void runGraphics() {
                 }
                 
                 // Draw text label showing queue size and estimated wait
-                char queueLabel[50];
-                snprintf(queueLabel, sizeof(queueLabel), "Q:%d | %dh", ports[i].queueCount, ports[i].estWaitMinutes / 60);
+                char queueLabel[QUEUE_LABEL_BUFFER_SIZE];
+                // Display time in hours if >= 1 hour, otherwise show minutes
+                if (ports[i].estWaitMinutes >= 60) {
+                    snprintf(queueLabel, sizeof(queueLabel), "Q:%d | %dh", 
+                            ports[i].queueCount, ports[i].estWaitMinutes / 60);
+                } else {
+                    snprintf(queueLabel, sizeof(queueLabel), "Q:%d | %dm", 
+                            ports[i].queueCount, ports[i].estWaitMinutes);
+                }
                 
                 sf::Text queueText(queueLabel, font, 9);
                 queueText.setFillColor(sf::Color(255, 255, 100));
