@@ -1996,10 +1996,12 @@ void runGraphics() {
                         if (timeSim.month < 1) timeSim.month = 1;
                         if (timeSim.day < 1) timeSim.day = 1;
                         
+                        #if DEBUG_ROUTE_EVALUATION
                         // Debug: Print to verify correct time initialization
                         printf("[DEBUG] Simulation initialized: %02d/%02d/%04d %02d:%02d (simTimeMinutes=%lld)\n",
                                timeSim.day, timeSim.month, timeSim.year,
                                timeSim.hour, timeSim.minute, simTimeMinutes);
+                        #endif
                         
                         timeSim.isPaused = false;
                         
