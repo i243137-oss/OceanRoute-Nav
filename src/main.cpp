@@ -105,6 +105,10 @@ const float GLOW_OFFSET = 2.0f;
 const int MAX_QUEUE_SHIPS_DISPLAY = 3; // Maximum number of animated ships to show in queue visualization
 const int DEFAULT_DOCK_SLOTS = 2;      // Default number of docking slots per port
 
+// Demo queue data constants (used when ENABLE_DEMO_QUEUE_DATA is enabled)
+const int DEMO_QUEUE_COUNT = 2;        // Number of ships waiting in Singapore demo queue
+const int DEMO_SERVICE_COUNT = 2;      // Number of ships being serviced in Singapore demo
+
 int selectedStart = -1;
 int selectedEnd = -1;
 int bookingMode = 0;
@@ -373,9 +377,9 @@ void loadData() {
             #if ENABLE_DEMO_QUEUE_DATA
             // Seed Singapore with demo queue data for visualization
             if (strcmp(ports[i].name, "Singapore") == 0) {
-                ports[i].queueCount = 2;               // 2 ships waiting
-                ports[i].inServiceCount = 2;           // Both docks occupied
-                recomputeEstWait(ports[i]);            // Compute wait time (will be ~8 hours)
+                ports[i].queueCount = DEMO_QUEUE_COUNT;       // Ships waiting in queue
+                ports[i].inServiceCount = DEMO_SERVICE_COUNT; // Ships currently being serviced
+                recomputeEstWait(ports[i]);                   // Compute estimated wait time
             }
             #endif
             

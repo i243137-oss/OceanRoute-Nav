@@ -241,6 +241,8 @@ inline void startService(Port& port) {
 }
 
 // Finish service and free up a dock slot
+// Note: Automatically starts servicing the next ship in queue if available,
+// simulating real-world port operations where queued ships immediately dock when slots open
 inline void finishService(Port& port) {
     if (port.inServiceCount > 0) {
         port.inServiceCount--;
