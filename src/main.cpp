@@ -207,14 +207,25 @@ int logStartIndex = 0;
 
 // Time simulation
 struct TimeSimulation {
-    int day;
-    int hour;
-    int minute;
-    Date startDate;
+    int day;    // 1-31 (NEVER 0)
+    int month;  // 1-12 (NEVER 0)
+    int year;   // e.g., 2024
+    int hour;   // 0-23
+    int minute; // 0-59
     bool isPaused;
+    
+    // Constructor with valid defaults
+    TimeSimulation() {
+        day = 1;      // Default to 1, not 0
+        month = 1;    // Default to 1, not 0
+        year = 2024;
+        hour = 0;
+        minute = 0;
+        isPaused = true;
+    }
 };
 
-TimeSimulation timeSim = {1, 0, 0, {20, 12, 2024}, false};
+TimeSimulation timeSim;
 
 // Enhanced Color Palette for better visual hierarchy
 sf::Color COL_BG_DARK(30, 30, 35);
@@ -295,6 +306,21 @@ void addShipLog(const char* message, bool isOurShip, sf::Clock& animClock) {
     shipLogs[index].timestamp = animClock.getElapsedTime().asSeconds();
 }
 
+// Days in each month (index 1-12, index 0 unused)
+int getDaysInMonth(int month, int year) {
+    // Month is 1-12, NOT 0-11
+    int days[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    //            ^-- Index 0 unused
+    
+    // Leap year check for February
+    if (month == 2 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) {
+        return 29;
+    }
+    
+    if (month < 1 || month > 12) return 31; // Safety check
+    return days[month];
+}
+
 // Update time based on ship progress
 void updateSimulatedTime(float deltaTime) {
     if (shipSim.isRunning && !timeSim.isPaused) {
@@ -307,14 +333,35 @@ void updateSimulatedTime(float deltaTime) {
         fractionalMinutes -= wholeMinutes;
         
         timeSim.minute += wholeMinutes;
+        
+        // Handle minute overflow -> hours
         while (timeSim.minute >= 60) {
             timeSim.minute -= 60;
             timeSim.hour++;
         }
+        
+        // Handle hour overflow -> days
         while (timeSim.hour >= 24) {
             timeSim.hour -= 24;
             timeSim.day++;
         }
+        
+        // Handle day overflow -> months
+        while (timeSim.day > getDaysInMonth(timeSim.month, timeSim.year)) {
+            timeSim.day -= getDaysInMonth(timeSim.month, timeSim.year);
+            timeSim.month++;
+            
+            // Handle month overflow -> years
+            // CRITICAL: Month resets to 1, NOT 0!
+            if (timeSim.month > 12) {
+                timeSim.month = 1;  // January = 1
+                timeSim.year++;
+            }
+        }
+        
+        // SAFETY: Ensure month and day are never 0
+        if (timeSim.month < 1) timeSim.month = 1;
+        if (timeSim.day < 1) timeSim.day = 1;
     }
 }
 
@@ -1508,7 +1555,7 @@ void runGraphics() {
     // Simulation control buttons
     Button btnPlayPause, btnSpeedCycle;
     btnPlayPause.init(20, 363, 148, 24, "Play/Pause", font);
-    btnSpeedCycle.init(173, 363, 157, 24, "Speed: 60x", font);
+    btnSpeedCycle.init(173, 363, 157, 24, "Speed: 1.0x", font);
 
     // Section Headers and Labels with improved visual hierarchy
     sf::Text txtSectionPortSelect("PORT SELECTION", font, 10); 
@@ -1771,6 +1818,20 @@ void runGraphics() {
                         spawnShip(foundJourneys[i]);
                     }
                     if (foundJourneysCount > 0) {
+                        // Initialize time simulation from USER'S ENTERED DATE
+                        Date userDate = parseDate(inputDateString);
+                        timeSim.day = userDate.day;      // e.g., 20
+                        timeSim.month = userDate.month;  // e.g., 12
+                        timeSim.year = userDate.year;    // e.g., 2024
+                        
+                        // Get departure time from first leg of first journey
+                        Journey& journey = foundJourneys[0];
+                        Route* firstLeg = journey.legs[0];
+                        timeSim.hour = firstLeg->departureTime.hour;
+                        timeSim.minute = firstLeg->departureTime.minute;
+                        
+                        timeSim.isPaused = false;
+                        
                         char buff[100];
                         snprintf(buff, sizeof(buff), "Spawned %d ships!", foundJourneysCount);
                         strcpy(statusMessage, buff);
@@ -1785,20 +1846,23 @@ void runGraphics() {
                 }
                 
                 if(btnSpeedCycle.isClicked(pos)) {
-                    // Cycle through speed options: 1x -> 10x -> 60x -> 120x -> 1x
-                    if (simSpeed == SIM_SPEED_1X) {
-                        simSpeed = SIM_SPEED_10X;
-                    } else if (simSpeed == SIM_SPEED_10X) {
-                        simSpeed = SIM_SPEED_60X;
-                    } else if (simSpeed == SIM_SPEED_60X) {
-                        simSpeed = SIM_SPEED_120X;
+                    // Cycle through speed options: 0.5x -> 1x -> 2x -> 5x -> 10x -> 0.5x
+                    // Speed limits: 0.5x to 10x maximum (as per requirements)
+                    if (shipSim.simulationSpeed < 1.0f) {
+                        shipSim.simulationSpeed = 1.0f;
+                    } else if (shipSim.simulationSpeed < 2.0f) {
+                        shipSim.simulationSpeed = 2.0f;
+                    } else if (shipSim.simulationSpeed < 5.0f) {
+                        shipSim.simulationSpeed = 5.0f;
+                    } else if (shipSim.simulationSpeed < 10.0f) {
+                        shipSim.simulationSpeed = 10.0f;
                     } else {
-                        simSpeed = SIM_SPEED_1X;
+                        shipSim.simulationSpeed = 0.5f;
                     }
                     
-                    // Update button label
+                    // Update button label with proper formatting
                     char speedLabel[SPEED_LABEL_BUFFER_SIZE];
-                    snprintf(speedLabel, sizeof(speedLabel), "Speed: %dx", simSpeed);
+                    snprintf(speedLabel, sizeof(speedLabel), "Speed: %.1fx", shipSim.simulationSpeed);
                     btnSpeedCycle.label.setString(speedLabel);
                     
                     // Re-center the label
@@ -1852,6 +1916,14 @@ void runGraphics() {
                     Time baseTime = {0, 0};
                     simTimeMinutes = getMinutes(baseDate, baseTime);
                     simPaused = true;
+                    
+                    // Reset TimeSimulation to default values
+                    timeSim.day = 1;
+                    timeSim.month = 1;
+                    timeSim.year = 2024;
+                    timeSim.hour = 0;
+                    timeSim.minute = 0;
+                    timeSim.isPaused = true;
                     
                     strcpy(statusMessage, "Ready."); strcpy(pathDetails, ""); strcpy(inputDateString, "20/12/2024");
                     txtStart.setString("From: None"); txtEnd.setString("To:   None");
@@ -2230,7 +2302,15 @@ void runGraphics() {
             
             // Format and display simulation time
             char timeStr[50];
-            formatSimDateTime(simTimeMinutes, timeStr, sizeof(timeStr));
+            // Display date starting from user's entered date
+            // Format: DD/MM/YYYY HH:MM
+            snprintf(timeStr, sizeof(timeStr), "%02d/%02d/%04d %02d:%02d", 
+                    timeSim.day,    // 01-31 (never 00)
+                    timeSim.month,  // 01-12 (never 00)
+                    timeSim.year,   // 2024, 2025, etc.
+                    timeSim.hour,   // 00-23
+                    timeSim.minute  // 00-59
+            );
             sf::Text timeText(timeStr, font, 16);
             timeText.setFillColor(sf::Color::White);
             timeText.setStyle(sf::Text::Bold);
@@ -2244,9 +2324,9 @@ void runGraphics() {
             // Pause/speed indicator below time
             char statusStr[40];
             if (simPaused) {
-                snprintf(statusStr, sizeof(statusStr), "PAUSED | Speed: %dx", simSpeed);
+                snprintf(statusStr, sizeof(statusStr), "PAUSED | Speed: %.1fx", shipSim.simulationSpeed);
             } else {
-                snprintf(statusStr, sizeof(statusStr), "RUNNING | Speed: %dx", simSpeed);
+                snprintf(statusStr, sizeof(statusStr), "RUNNING | Speed: %.1fx", shipSim.simulationSpeed);
             }
             sf::Text statusText(statusStr, font, 12);
             statusText.setFillColor(simPaused ? sf::Color(255, 150, 150) : sf::Color(150, 255, 150));
