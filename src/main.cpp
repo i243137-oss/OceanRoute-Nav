@@ -249,6 +249,11 @@ sf::Color COL_SEPARATOR(70, 70, 75);
 sf::Color COL_SECTION_HEADER(0, 180, 255);
 sf::Color COL_STATUS_SUCCESS(100, 255, 100);
 sf::Color COL_STATUS_WARNING(255, 200, 100);
+sf::Color COL_BTN_DISABLED(80, 80, 80);  // Disabled button color for route selection
+
+// Route Selection Panel Constants
+const int ROUTE_INFO_BUFFER_SIZE = 500;
+const int COMPANIES_BUFFER_SIZE = 250;
 
 // Route colors for multi-route visualization
 // Note: Array size matches MAX_ROUTES_TO_DISPLAY (5 colors for 5 max routes)
@@ -792,9 +797,14 @@ int calculateVoyageDuration(Journey& journey) {
     long long departure = getMinutes(journey.legs[0]->voyageDate, journey.legs[0]->departureTime);
     Route* lastLeg = journey.legs[journey.legCount - 1];
     long long arrival = getMinutes(lastLeg->voyageDate, lastLeg->arrivalTime);
-    // Handle day boundary crossing
-    if (arrival < departure) arrival += 1440;
-    return (int)(arrival - departure);
+    // Calculate duration (getMinutes returns absolute time, so this handles multi-day journeys correctly)
+    long long duration = arrival - departure;
+    // Validate that duration is non-negative (arrival should be after departure)
+    if (duration < 0) {
+        // This shouldn't happen with correct data, but return 0 as a safe fallback
+        return 0;
+    }
+    return (int)duration;
 }
 
 // Format duration as string (e.g., "14h 30m")
@@ -808,11 +818,19 @@ void formatDuration(int minutes, char* buffer, int bufferSize) {
 void getJourneyCompanies(Journey& journey, char* buffer, int bufferSize) {
     buffer[0] = '\0';
     for (int i = 0; i < journey.legCount; i++) {
-        if (i > 0 && strlen(buffer) + strlen(journey.legs[i]->company) + 2 < (size_t)bufferSize) {
-            strcat(buffer, ", ");
-        }
-        if (strlen(buffer) + strlen(journey.legs[i]->company) < (size_t)bufferSize) {
+        int currentLen = strlen(buffer);
+        int companyLen = strlen(journey.legs[i]->company);
+        int separatorLen = (i > 0) ? 2 : 0;  // ", " if not first
+        
+        // Check if there's enough space for separator + company name + null terminator
+        if (currentLen + separatorLen + companyLen + 1 < bufferSize) {
+            if (i > 0) {
+                strcat(buffer, ", ");
+            }
             strcat(buffer, journey.legs[i]->company);
+        } else {
+            // If we can't fit everything, truncate gracefully
+            break;
         }
     }
 }
@@ -2794,9 +2812,9 @@ void runGraphics() {
                 window.draw(routeBox);
                 
                 // Calculate route information
-                char routeInfo[500];  // Increased from 400 to 500
+                char routeInfo[ROUTE_INFO_BUFFER_SIZE];
                 char durationStr[20];
-                char companiesStr[250];  // Increased from 200 to 250
+                char companiesStr[COMPANIES_BUFFER_SIZE];
                 char departureStr[50];
                 char arrivalStr[50];
                 
@@ -2839,7 +2857,7 @@ void runGraphics() {
             
             // Disable button if no route selected
             if (selectedRouteIndex < 0) {
-                btnBookSelected.shape.setFillColor(sf::Color(80, 80, 80));
+                btnBookSelected.shape.setFillColor(COL_BTN_DISABLED);
             }
             btnBookSelected.draw(window);
             
