@@ -856,17 +856,22 @@ const char* getLegOrigin(Journey& journey, int legIndex, int originPortIndex) {
 }
 
 // Truncate string to maxLen, adding "..." if truncated
+// maxLen is the maximum length of content (excluding null terminator)
 void truncateString(char* dest, const char* src, int maxLen) {
-    // Ensure maxLen is at least 4 (3 for "..." + 1 for null terminator)
+    // Ensure maxLen is at least 4 (3 for "..." + 1 for at least one char)
     if (maxLen < 4) {
-        if (maxLen > 0) dest[0] = '\0';
+        if (maxLen >= 0) {
+            dest[0] = '\0';
+        }
         return;
     }
     
     int srcLen = strlen(src);
-    if (srcLen <= maxLen) {
+    // If source fits with room for null terminator
+    if (srcLen < maxLen) {
         strcpy(dest, src);
     } else {
+        // Need to truncate: copy (maxLen-3) chars + "..." + null
         strncpy(dest, src, maxLen - 3);
         dest[maxLen - 3] = '\0';
         strcat(dest, "...");
