@@ -906,8 +906,9 @@ void runGraphics() {
                         
                         // Parse comma-separated companies
                         if (strlen(tempCompany) > 0) {
-                            char tempCopy[200];
-                            strcpy(tempCopy, tempCompany);
+                            char tempCopy[50];
+                            strncpy(tempCopy, tempCompany, 49);
+                            tempCopy[49] = '\0';
                             char* token = strtok(tempCopy, ",");
                             while (token != nullptr && userPrefs.preferredCompanyCount < 5) {
                                 // Trim leading/trailing spaces
@@ -925,8 +926,9 @@ void runGraphics() {
                         
                         // Parse comma-separated avoided ports
                         if (strlen(tempAvoidPort) > 0) {
-                            char tempCopy[200];
-                            strcpy(tempCopy, tempAvoidPort);
+                            char tempCopy[50];
+                            strncpy(tempCopy, tempAvoidPort, 49);
+                            tempCopy[49] = '\0';
                             char* token = strtok(tempCopy, ",");
                             while (token != nullptr && userPrefs.avoidedPortCount < 10) {
                                 // Trim leading/trailing spaces
@@ -1052,15 +1054,22 @@ void runGraphics() {
                         
                         // Draw glow effect for filtered routes
                         if (userPrefs.usePreferences) {
-                            sf::Color glowColor = sf::Color(255, 200, 0, 100); // Golden glow for filtered routes
+                            sf::Color glowColor = sf::Color(255, 200, 0, 80); // Golden glow for filtered routes
                             
-                            // Draw glow (thicker line effect using multiple offset lines)
-                            for (int offset_val = -2; offset_val <= 2; offset_val++) {
+                            // Draw glow (thicker line effect using fewer offset lines for performance)
+                            for (int offset_val = -1; offset_val <= 1; offset_val++) {
                                 sf::Vertex glowLine[] = {
                                     sf::Vertex(sf::Vector2f(p1.x + offset_val, p1.y), glowColor),
                                     sf::Vertex(sf::Vector2f(p2.x + offset_val, p2.y), glowColor)
                                 };
                                 window.draw(glowLine, 2, sf::Lines);
+                                
+                                // Draw horizontal offset for thicker appearance
+                                sf::Vertex glowLineY[] = {
+                                    sf::Vertex(sf::Vector2f(p1.x, p1.y + offset_val), glowColor),
+                                    sf::Vertex(sf::Vector2f(p2.x, p2.y + offset_val), glowColor)
+                                };
+                                window.draw(glowLineY, 2, sf::Lines);
                             }
                         }
 
