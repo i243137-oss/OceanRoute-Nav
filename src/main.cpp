@@ -1485,11 +1485,12 @@ void runGraphics() {
     InputBox dateInput; 
     dateInput.init(20, 88, 310, 25, font, "DD/MM/YYYY");
     
+    // Preferences input boxes (positioned over map area)
     InputBox companyInput; 
-    companyInput.init(25, 383, 290, 25, font, "e.g., Maersk, MSC");
+    companyInput.init(MAP_OFFSET_X + 395, 283, 290, 28, font, "e.g., Maersk, MSC");
     
     InputBox avoidPortInput; 
-    avoidPortInput.init(25, 433, 290, 25, font, "e.g., Dubai, Mumbai");
+    avoidPortInput.init(MAP_OFFSET_X + 395, 343, 290, 28, font, "e.g., Dubai, Mumbai");
     
     Button btnSearch, btnDijkstra, btnBook, btnClear;
     btnSearch.init(20, 138, 310, 28, "Find Routes (Date)", font);
@@ -1499,7 +1500,7 @@ void runGraphics() {
     
     Button btnPreferences, btnApplyPrefs;
     btnPreferences.init(20, 305, 310, 28, "Preferences", font);
-    btnApplyPrefs.init(25, 470, 290, 28, "Apply Filters", font);
+    btnApplyPrefs.init(MAP_OFFSET_X + 445, 385, 190, 30, "Apply Filters", font);
     
     // Simulation control buttons
     Button btnPlayPause, btnSpeedCycle;
@@ -1546,22 +1547,24 @@ void runGraphics() {
     txtDetails.setPosition(20, 278); 
     txtDetails.setFillColor(sf::Color::Cyan);
     
-    // Preferences Section overlay elements
-    sf::Text txtPrefTitle("PREFERENCES", font, 12); 
-    txtPrefTitle.setPosition(25, 340); 
+    // Preferences Section overlay elements (positioned over map area)
+    sf::Text txtPrefTitle("PREFERENCES", font, 14); 
+    txtPrefTitle.setPosition(MAP_OFFSET_X + 420, 230); 
     txtPrefTitle.setFillColor(sf::Color::Cyan);
+    txtPrefTitle.setStyle(sf::Text::Bold);
     
-    sf::Text txtCompanyLabel("Company (comma-sep):", font, 10); 
-    txtCompanyLabel.setPosition(25, 365); 
+    sf::Text txtCompanyLabel("Preferred Company (comma-sep):", font, 11); 
+    txtCompanyLabel.setPosition(MAP_OFFSET_X + 395, 265); 
     txtCompanyLabel.setFillColor(COL_TEXT_WHITE);
     
-    sf::Text txtAvoidLabel("Avoid Ports (comma-sep):", font, 10); 
-    txtAvoidLabel.setPosition(25, 415); 
+    sf::Text txtAvoidLabel("Avoid Ports (comma-sep):", font, 11); 
+    txtAvoidLabel.setPosition(MAP_OFFSET_X + 395, 325); 
     txtAvoidLabel.setFillColor(COL_TEXT_WHITE);
     
-    sf::Text txtCloseBtn("X", font, 14);
-    txtCloseBtn.setPosition(310, 335);
+    sf::Text txtCloseBtn("X", font, 16);
+    txtCloseBtn.setPosition(MAP_OFFSET_X + 670, 205);
     txtCloseBtn.setFillColor(sf::Color::Red);
+    txtCloseBtn.setStyle(sf::Text::Bold);
     
     // Simulation Section
     sf::Text txtSimSection("SIMULATION", font, 10);
@@ -1638,7 +1641,8 @@ void runGraphics() {
                 // If preferences panel is open, handle clicks specially
                 if (showPreferencesPanel) {
                     // Check if clicking close button (X)
-                    if (pos.x >= 305 && pos.x <= 330 && pos.y >= 330 && pos.y <= 355) {
+                    if (pos.x >= MAP_OFFSET_X + 665 && pos.x <= MAP_OFFSET_X + 695 && 
+                        pos.y >= 200 && pos.y <= 225) {
                         showPreferencesPanel = false;
                     }
                     // Check if clicking Apply button
@@ -1728,7 +1732,8 @@ void runGraphics() {
                         focusCompany = false;
                     }
                     // Click outside panel closes it
-                    else if (pos.x < 15 || pos.x > 335 || pos.y < 330 || pos.y > 510) {
+                    else if (pos.x < MAP_OFFSET_X + 375 || pos.x > MAP_OFFSET_X + 705 || 
+                             pos.y < 195 || pos.y > 425) {
                         showPreferencesPanel = false;
                     }
                     
@@ -2310,14 +2315,20 @@ void runGraphics() {
             if (yOffset > 990) break; // Don't draw beyond visible area
         }
         
-        // Preferences panel - draw as an OVERLAY on top of everything
+        // Preferences panel - draw as an OVERLAY on top of map (centered)
         if (showPreferencesPanel) {
-            // Semi-transparent background overlay for the entire preferences area
-            sf::RectangleShape prefOverlay(sf::Vector2f(320, 180));
+            // Semi-transparent dark overlay for the entire screen to focus on preferences
+            sf::RectangleShape screenOverlay(sf::Vector2f(1536 + MAP_OFFSET_X, 1024));
+            screenOverlay.setFillColor(sf::Color(0, 0, 0, 150));
+            screenOverlay.setPosition(0, 0);
+            window.draw(screenOverlay);
+            
+            // Preferences panel background
+            sf::RectangleShape prefOverlay(sf::Vector2f(330, 230));
             prefOverlay.setFillColor(sf::Color(20, 25, 35, 250));
-            prefOverlay.setOutlineColor(sf::Color::Cyan);
-            prefOverlay.setOutlineThickness(2);
-            prefOverlay.setPosition(15, 330);
+            prefOverlay.setOutlineColor(sf::Color(0, 180, 255));
+            prefOverlay.setOutlineThickness(3);
+            prefOverlay.setPosition(MAP_OFFSET_X + 380, 195);
             window.draw(prefOverlay);
             
             // Preferences title
