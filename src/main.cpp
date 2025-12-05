@@ -132,7 +132,7 @@ int confirmedRouteIndex = -1;  // Route that was booked
 
 // Route Selection Panel Pagination
 int routePageIndex = 0;           // Current page (0-indexed)
-int routesPerPage = 3;            // Number of routes to show per page
+int routesPerPage = 1;            // Number of routes to show per page (1 route per page)
 int totalRoutePages = 1;          // Total number of pages
 
 // Algorithm visualization tracking
@@ -261,6 +261,8 @@ sf::Color COL_BTN_DISABLED(80, 80, 80);  // Disabled button color for route sele
 const int ROUTE_INFO_BUFFER_SIZE = 500;
 const int COMPANIES_BUFFER_SIZE = 250;
 const int MAX_LEGS_TO_DISPLAY = 5;  // Maximum number of legs to display in route panel
+const int PORT_NAME_MAX_LEN = 20;   // Maximum length for port names in display
+const int COMPANY_NAME_MAX_LEN = 15; // Maximum length for company names in display
 
 // Route colors for multi-route visualization
 // Note: Array size matches MAX_ROUTES_TO_DISPLAY (5 colors for 5 max routes)
@@ -853,14 +855,53 @@ const char* getLegOrigin(Journey& journey, int legIndex, int originPortIndex) {
     return ports[journey.legs[legIndex - 1]->destinationIndex].name;
 }
 
+// Truncate string to maxLen, adding "..." if truncated
+// maxLen is the maximum length of content (excluding null terminator)
+// dest buffer must be at least maxLen+1 bytes to hold result + null terminator
+void truncateString(char* dest, const char* src, int maxLen) {
+    // Null pointer checks
+    if (!dest || !src) {
+        if (dest) dest[0] = '\0';
+        return;
+    }
+    
+    // Ensure maxLen is at least 4 (3 for "..." + 1 for at least one char)
+    if (maxLen < 4) {
+        if (maxLen >= 0) {
+            dest[0] = '\0';
+        }
+        return;
+    }
+    
+    int srcLen = strlen(src);
+    // If source fits within maxLen chars (plus room for null terminator in dest)
+    // Note: srcLen < maxLen means we can copy srcLen chars + null terminator
+    if (srcLen <= maxLen) {
+        strcpy(dest, src);
+    } else {
+        // Need to truncate: copy (maxLen-3) chars + "..." + null
+        strncpy(dest, src, maxLen - 3);
+        dest[maxLen - 3] = '\0';
+        strcat(dest, "...");
+    }
+}
+
 // Format leg information with port names, company, and times
 void formatLegInfo(Journey& journey, int legIndex, int originPortIndex, char* buffer, int bufferSize) {
     Route* leg = journey.legs[legIndex];
     const char* origin = getLegOrigin(journey, legIndex, originPortIndex);
     const char* dest = ports[leg->destinationIndex].name;
     
-    snprintf(buffer, bufferSize, "  Leg %d: %s -> %s\n  %s | %02d:%02d -> %02d:%02d",
-             legIndex + 1, origin, dest, leg->company,
+    // Truncate long port/company names
+    char shortOrigin[PORT_NAME_MAX_LEN + 1];
+    char shortDest[PORT_NAME_MAX_LEN + 1];
+    char shortCompany[COMPANY_NAME_MAX_LEN + 1];
+    truncateString(shortOrigin, origin, PORT_NAME_MAX_LEN);
+    truncateString(shortDest, dest, PORT_NAME_MAX_LEN);
+    truncateString(shortCompany, leg->company, COMPANY_NAME_MAX_LEN);
+    
+    snprintf(buffer, bufferSize, "Leg %d: %s → %s\n  Company: %s\n  Departs: %02d:%02d → Arrives: %02d:%02d",
+             legIndex + 1, shortOrigin, shortDest, shortCompany,
              leg->departureTime.hour, leg->departureTime.minute,
              leg->arrivalTime.hour, leg->arrivalTime.minute);
 }
@@ -2153,9 +2194,9 @@ void runGraphics() {
                         selectedRouteIndex = -1;  // Reset selection
                         confirmedRouteIndex = -1;  // Reset confirmed route
                         
-                        // Calculate pagination
+                        // Calculate pagination (1 route per page)
                         routePageIndex = 0;  // Reset to first page
-                        totalRoutePages = (foundJourneysCount + routesPerPage - 1) / routesPerPage;  // Ceiling division
+                        totalRoutePages = foundJourneysCount;  // Each route gets its own page
                         
                         strcpy(statusMessage, "Select a route to book");
                     } else {
@@ -2916,9 +2957,11 @@ void runGraphics() {
                 // Build route info string with leg details for multi-leg routes
                 if (journey.legCount == 1) {
                     // Direct route - show simple info
+                    char shortCompany[COMPANY_NAME_MAX_LEN + 1];
+                    truncateString(shortCompany, firstLeg->company, COMPANY_NAME_MAX_LEN);
                     snprintf(routeInfo, sizeof(routeInfo), 
-                        "Route %d - %s\nCompany: %s\nDeparts: %s | Arrives: %s\nDuration: %s | Cost: $%d",
-                        i + 1, legsText, firstLeg->company, departureStr, arrivalStr, durationStr, journey.totalCost);
+                        "Route %d - %s\n\nCompany: %s\nDeparts: %s\nArrives: %s\n\nDuration: %s\nCost: $%d",
+                        i + 1, legsText, shortCompany, departureStr, arrivalStr, durationStr, journey.totalCost);
                 } else {
                     // Multi-leg route - show header with leg details
                     snprintf(routeInfo, sizeof(routeInfo), 
@@ -2930,16 +2973,18 @@ void runGraphics() {
                         char legInfo[200];  // Increased to handle longer port/company names
                         formatLegInfo(journey, legIdx, selectedStart, legInfo, sizeof(legInfo));
                         
-                        // Check if we have space to add this leg info (with room for \n and null terminator)
-                        if (strlen(routeInfo) + strlen(legInfo) + 2 <= ROUTE_INFO_BUFFER_SIZE - 1) {
+                        // Check if we have space to add this leg info
+                        // +3 accounts for: 1 newline before + 1 newline after + 1 null terminator
+                        if (strlen(routeInfo) + strlen(legInfo) + 3 <= ROUTE_INFO_BUFFER_SIZE - 1) {
                             strcat(routeInfo, "\n");
                             strcat(routeInfo, legInfo);
+                            strcat(routeInfo, "\n");
                         }
                     }
                     
                     // Add total duration and cost at the end
                     char summaryLine[100];
-                    snprintf(summaryLine, sizeof(summaryLine), "\n\nTotal Duration: %s | Total Cost: $%d",
+                    snprintf(summaryLine, sizeof(summaryLine), "\nTotal Duration: %s\nTotal Cost: $%d",
                              durationStr, journey.totalCost);
                     
                     if (strlen(routeInfo) + strlen(summaryLine) <= ROUTE_INFO_BUFFER_SIZE - 1) {
@@ -2949,8 +2994,8 @@ void runGraphics() {
                 
                 // Display route info text
                 txtRouteInfo[displayIndex].setString(routeInfo);
-                txtRouteInfo[displayIndex].setPosition(panelX + 30, routeY + 8);
-                txtRouteInfo[displayIndex].setCharacterSize(10);
+                txtRouteInfo[displayIndex].setPosition(panelX + 30, routeY + 10);
+                txtRouteInfo[displayIndex].setCharacterSize(11);  // Slightly larger for single route
                 window.draw(txtRouteInfo[displayIndex]);
                 
                 // Select button
