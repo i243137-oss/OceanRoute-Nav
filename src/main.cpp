@@ -1845,6 +1845,7 @@ void runGraphics() {
                 // Simulation control buttons
                 if(btnPlayPause.isClicked(pos)) {
                     simPaused = !simPaused;
+                    timeSim.isPaused = simPaused;
                 }
                 
                 if(btnSpeedCycle.isClicked(pos)) {
