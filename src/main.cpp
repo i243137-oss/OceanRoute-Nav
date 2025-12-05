@@ -923,7 +923,6 @@ void spawnShip(Journey& journey) {
     
     // Initialize ship state
     ship->currentLegIndex = 0;
-    ship->state = TRAVELING;
     
     // Set departure and arrival times for first leg
     Route* firstLeg = ship->legs[0];
@@ -937,6 +936,10 @@ void spawnShip(Journey& journey) {
     
     ship->currentPortIndex = ship->originIndex;
     ship->nextDepartureMin = ship->departureTimeMin;
+    
+    // Ship starts waiting at origin port until departure time
+    ship->state = WAITING_QUEUE;
+    shipArrival(ports[ship->originIndex]);
     
     addShipToActiveList(ship);
 }
@@ -1005,33 +1008,36 @@ void processSimulationTick() {
                 break;
                 
             case WAITING_QUEUE:
-                // Check if it's time to depart and if a dock is available
+                // Check if it's time to depart
                 if (simTimeMinutes >= curr->nextDepartureMin) {
+                    // Try to get a dock slot
                     if (ports[curr->currentPortIndex].inServiceCount < ports[curr->currentPortIndex].dockSlots) {
-                        // Dock available - start service
-                        startService(ports[curr->currentPortIndex]);
-                        curr->state = DOCKED;
+                        // Dock available - start immediate departure (no separate docking phase for simplicity)
+                        // Remove from queue and depart
+                        if (ports[curr->currentPortIndex].queueCount > 0) {
+                            ports[curr->currentPortIndex].queueCount--;
+                            recomputeEstWait(ports[curr->currentPortIndex]);
+                        }
+                        
+                        // Set up next leg travel
+                        Route* departingLeg = curr->legs[curr->currentLegIndex];
+                        curr->departureTimeMin = getMinutes(departingLeg->voyageDate, departingLeg->departureTime);
+                        curr->arrivalTimeMin = getMinutes(departingLeg->voyageDate, departingLeg->arrivalTime);
+                        
+                        // Handle day boundary
+                        if (departingLeg->arrivalTime.hour < departingLeg->departureTime.hour) {
+                            curr->arrivalTimeMin += 1440;
+                        }
+                        
+                        curr->state = TRAVELING;
                     }
+                    // If no dock available, ship waits in queue
                 }
                 break;
                 
             case DOCKED:
-                // Check if it's time to depart
-                if (simTimeMinutes >= curr->nextDepartureMin) {
-                    // Depart on next leg
-                    Route* nextLeg = curr->legs[curr->currentLegIndex];
-                    curr->departureTimeMin = getMinutes(nextLeg->voyageDate, nextLeg->departureTime);
-                    curr->arrivalTimeMin = getMinutes(nextLeg->voyageDate, nextLeg->arrivalTime);
-                    
-                    // Handle day boundary
-                    if (nextLeg->arrivalTime.hour < nextLeg->departureTime.hour) {
-                        curr->arrivalTimeMin += 1440;
-                    }
-                    
-                    // Free the dock
-                    finishService(ports[curr->currentPortIndex]);
-                    curr->state = TRAVELING;
-                }
+                // Docked state not used in simplified model
+                // Ships go directly from WAITING_QUEUE to TRAVELING at departure time
                 break;
                 
             case COMPLETED:
@@ -1668,6 +1674,20 @@ void runGraphics() {
                 shipShape.setOutlineThickness(2.0f);
                 shipShape.setOutlineColor(sf::Color(255, 255, 255, 200));
                 shipShape.setOrigin(5.0f, 5.0f);
+                shipShape.setPosition(shipX, shipY);
+                window.draw(shipShape);
+            } else if (ship->state == WAITING_QUEUE || ship->state == DOCKED) {
+                // Draw ship waiting at port (near the port icon)
+                float angle = (float)ship->shipId * 0.5f; // Different angle for each ship
+                float radius = 25.0f;
+                float shipX = ports[ship->currentPortIndex].x + cos(angle) * radius;
+                float shipY = ports[ship->currentPortIndex].y + sin(angle) * radius;
+                
+                sf::CircleShape shipShape(4.0f);
+                shipShape.setFillColor(sf::Color(100, 200, 255, 230));
+                shipShape.setOutlineThickness(1.5f);
+                shipShape.setOutlineColor(sf::Color(255, 255, 255, 200));
+                shipShape.setOrigin(4.0f, 4.0f);
                 shipShape.setPosition(shipX, shipY);
                 window.draw(shipShape);
             }
