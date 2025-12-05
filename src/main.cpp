@@ -137,7 +137,7 @@ Ship* activeShipsHead = nullptr;  // Linked list of active ships
 int nextShipId = 1;                // Unique ID counter for ships
 long long simTimeMinutes = 0;      // Current simulation time in absolute minutes since epoch
 bool simPaused = false;            // Simulation auto-starts on launch (requirement)
-int simSpeed = SIM_SPEED_1X;       // Simulation speed in minutes per real-time second (60 = 1x speed = 1 hour/second)
+int simSpeed = 60;                 // Simulation speed in minutes per real-time second (60 = 1x speed = 1 hour/second)
 sf::Clock simClock;                // Clock for tracking real time
 float simAccumulator = 0.0f;       // Accumulator for fractional minutes
 sf::Clock globalAnimClock;         // Global animation clock for logging
