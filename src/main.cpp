@@ -317,7 +317,9 @@ int getDaysInMonth(int month, int year) {
         return 29;
     }
     
-    if (month < 1 || month > 12) return 31; // Safety check
+    // Safety check: return 31 for invalid months to prevent crash
+    // This should never happen in normal operation due to safety checks in caller
+    if (month < 1 || month > 12) return 31;
     return days[month];
 }
 
@@ -1848,21 +1850,23 @@ void runGraphics() {
                 if(btnSpeedCycle.isClicked(pos)) {
                     // Cycle through speed options: 0.5x -> 1x -> 2x -> 5x -> 10x -> 0.5x
                     // Speed limits: 0.5x to 10x maximum (as per requirements)
-                    if (shipSim.simulationSpeed <= 0.5f) {
+                    // Use ranges to avoid issues with floating point equality
+                    if (shipSim.simulationSpeed < 0.75f) {  // 0.5x or less
                         shipSim.simulationSpeed = 1.0f;
-                    } else if (shipSim.simulationSpeed <= 1.0f) {
+                    } else if (shipSim.simulationSpeed < 1.5f) {  // 1.0x
                         shipSim.simulationSpeed = 2.0f;
-                    } else if (shipSim.simulationSpeed <= 2.0f) {
+                    } else if (shipSim.simulationSpeed < 3.5f) {  // 2.0x
                         shipSim.simulationSpeed = 5.0f;
-                    } else if (shipSim.simulationSpeed <= 5.0f) {
+                    } else if (shipSim.simulationSpeed < 7.5f) {  // 5.0x
                         shipSim.simulationSpeed = 10.0f;
-                    } else {
+                    } else {  // 10.0x or more
                         shipSim.simulationSpeed = 0.5f;
                     }
                     
-                    // Synchronize both speed variables
-                    // simSpeed is used for ship state machine, shipSim.simulationSpeed for time display
-                    simSpeed = (int)(shipSim.simulationSpeed * 60.0f); // Convert to minutes per second
+                    // Synchronize with simSpeed (used by ship state machine)
+                    // simSpeed represents simulation minutes per real-time second
+                    // Convert from speed multiplier to minutes per second: 1x = 60 min/sec
+                    simSpeed = (int)(shipSim.simulationSpeed * 60.0f);
                     
                     // Update button label with proper formatting
                     char speedLabel[SPEED_LABEL_BUFFER_SIZE];
