@@ -1323,8 +1323,8 @@ void spawnShip(Journey& journey) {
     
     // Ship starts at origin port already docked, waiting for departure time
     // Since the ship is already at the origin port (not arriving), it should be DOCKED
-    // directly rather than joining the queue
-    startService(ports[ship->originIndex]);
+    // directly rather than joining the queue. We increment inServiceCount to track the dock slot usage.
+    ports[ship->originIndex].inServiceCount++;
     ship->state = DOCKED;
     
     // Log ship booking/spawn with detailed timing information
