@@ -1701,7 +1701,7 @@ void runGraphics() {
     Button btnSearch, btnDijkstra, btnBook, btnClear;
     btnSearch.init(20, 138, 310, 28, "Find Routes (Date)", font);
     btnDijkstra.init(20, 170, 310, 28, "Find Cheapest Route", font);
-    btnBook.init(20, 202, 310, 28, "Book Route (All)", font);
+    btnBook.init(20, 202, 310, 28, "Book Route", font);
     btnClear.init(250, 238, 80, 20, "Reset", font);
     
     Button btnPreferences, btnApplyPrefs;
@@ -2794,9 +2794,9 @@ void runGraphics() {
                 window.draw(routeBox);
                 
                 // Calculate route information
-                char routeInfo[400];
+                char routeInfo[500];  // Increased from 400 to 500
                 char durationStr[20];
-                char companiesStr[200];
+                char companiesStr[250];  // Increased from 200 to 250
                 char departureStr[50];
                 char arrivalStr[50];
                 
