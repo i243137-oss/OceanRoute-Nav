@@ -52,6 +52,12 @@ struct Port {
     int minTime;
     int parentIndex;
     bool visited;
+    
+    // Dock Queue Management
+    int dockSlots;             // Number of available docking slots (default: 2)
+    int queueCount;            // Number of ships waiting in queue
+    int inServiceCount;        // Number of ships currently being serviced
+    int estWaitMinutes;        // Estimated wait time in minutes for new arrivals
 };
 
 // ==========================================
@@ -205,5 +211,46 @@ public:
     
     bool isEmpty() { return top == nullptr; }
 };
+
+// ==========================================
+// 7. Queue Management Helper Functions
+// ==========================================
+const int AVG_SERVICE_MINUTES = 240; // 4 hours average service time
+
+// Recompute estimated wait time for a port
+// Formula: ((queueCount + inServiceCount - dockSlots) * avgServiceMinutes), clamped at >= 0
+inline void recomputeEstWait(Port& port) {
+    int occupancy = port.queueCount + port.inServiceCount - port.dockSlots;
+    if (occupancy < 0) occupancy = 0;
+    port.estWaitMinutes = occupancy * AVG_SERVICE_MINUTES;
+}
+
+// Ship arrives at port and joins queue
+inline void shipArrival(Port& port) {
+    port.queueCount++;
+    recomputeEstWait(port);
+}
+
+// Start service when a dock slot becomes available
+inline void startService(Port& port) {
+    if (port.queueCount > 0 && port.inServiceCount < port.dockSlots) {
+        port.queueCount--;
+        port.inServiceCount++;
+        recomputeEstWait(port);
+    }
+}
+
+// Finish service and free up a dock slot
+inline void finishService(Port& port) {
+    if (port.inServiceCount > 0) {
+        port.inServiceCount--;
+        // Automatically start servicing next ship in queue if available
+        if (port.queueCount > 0) {
+            port.queueCount--;
+            port.inServiceCount++;
+        }
+        recomputeEstWait(port);
+    }
+}
 
 #endif
