@@ -217,9 +217,9 @@ struct TimeSimulation {
     
     // Constructor with valid defaults
     TimeSimulation() {
-        day = 1;      // Default to 1, not 0
-        month = 1;    // Default to 1, not 0
-        year = 2024;
+        day = SIM_BASE_DAY;      // Start at base date (20/12/2024)
+        month = SIM_BASE_MONTH;
+        year = SIM_BASE_YEAR;
         hour = 0;
         minute = 0;
         isPaused = false; // Auto-start simulation on launch
@@ -324,13 +324,13 @@ int getDaysInMonth(int month, int year) {
     return days[month];
 }
 
-// Update time based on ship progress
+// Update time display based on simulation progress
 void updateSimulatedTime(float deltaTime) {
     if (!timeSim.isPaused) {
-        // Advance simulation time (1 real second = 1 simulated hour)
-        // Use floating point to avoid drift
+        // Advance simulation time based on simSpeed
+        // simSpeed represents simulation minutes per real-time second
         static float fractionalMinutes = 0.0f;
-        fractionalMinutes += deltaTime * 60.0f * shipSim.simulationSpeed;
+        fractionalMinutes += deltaTime * simSpeed;
         
         int wholeMinutes = (int)fractionalMinutes;
         fractionalMinutes -= wholeMinutes;
@@ -1961,15 +1961,15 @@ void runGraphics() {
                     Date baseDate = {SIM_BASE_DAY, SIM_BASE_MONTH, SIM_BASE_YEAR};
                     Time baseTime = {0, 0};
                     simTimeMinutes = getMinutes(baseDate, baseTime);
-                    simPaused = true;
+                    simPaused = false;  // Keep auto-start behavior
                     
-                    // Reset TimeSimulation to default values
-                    timeSim.day = 1;
-                    timeSim.month = 1;
-                    timeSim.year = 2024;
+                    // Reset TimeSimulation to base date
+                    timeSim.day = SIM_BASE_DAY;
+                    timeSim.month = SIM_BASE_MONTH;
+                    timeSim.year = SIM_BASE_YEAR;
                     timeSim.hour = 0;
                     timeSim.minute = 0;
-                    timeSim.isPaused = true;
+                    timeSim.isPaused = false;  // Keep auto-start behavior
                     
                     strcpy(statusMessage, "Ready."); strcpy(pathDetails, ""); strcpy(inputDateString, "20/12/2024");
                     txtStart.setString("From: None"); txtEnd.setString("To:   None");
@@ -2369,10 +2369,11 @@ void runGraphics() {
             
             // Pause/speed indicator below time
             char statusStr[40];
+            float speedMultiplier = simSpeed / 60.0f;
             if (simPaused) {
-                snprintf(statusStr, sizeof(statusStr), "PAUSED | Speed: %.1fx", shipSim.simulationSpeed);
+                snprintf(statusStr, sizeof(statusStr), "PAUSED | Speed: %.1fx", speedMultiplier);
             } else {
-                snprintf(statusStr, sizeof(statusStr), "RUNNING | Speed: %.1fx", shipSim.simulationSpeed);
+                snprintf(statusStr, sizeof(statusStr), "RUNNING | Speed: %.1fx", speedMultiplier);
             }
             sf::Text statusText(statusStr, font, 12);
             statusText.setFillColor(simPaused ? sf::Color(255, 150, 150) : sf::Color(150, 255, 150));
