@@ -112,6 +112,7 @@ const int DEMO_SERVICE_COUNT = 2;      // Number of ships being serviced in Sing
 
 // UI constants
 const int QUEUE_LABEL_BUFFER_SIZE = 50; // Buffer size for queue label text
+const int SPEED_LABEL_BUFFER_SIZE = 30; // Buffer size for speed label text
 
 int selectedStart = -1;
 int selectedEnd = -1;
@@ -1303,6 +1304,8 @@ void processSimulationTick() {
                 // 2. A dock slot is available
                 
                 // First, try to get a dock slot if available (transition to DOCKED)
+                // Note: startService maintains FIFO ordering via queueCount mechanism
+                // Only one ship per port can transition per tick, ensuring fair processing
                 if (ports[curr->currentPortIndex].inServiceCount < ports[curr->currentPortIndex].dockSlots) {
                     // Dock slot available - start service
                     startService(ports[curr->currentPortIndex]);
@@ -1794,7 +1797,7 @@ void runGraphics() {
                     }
                     
                     // Update button label
-                    char speedLabel[30];
+                    char speedLabel[SPEED_LABEL_BUFFER_SIZE];
                     snprintf(speedLabel, sizeof(speedLabel), "Speed: %dx", simSpeed);
                     btnSpeedCycle.label.setString(speedLabel);
                     
