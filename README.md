@@ -125,6 +125,49 @@ The application now features real-time visualization of port congestion:
 
 **Note**: The ports.txt file format remains unchanged. Queue management is handled dynamically at runtime without requiring schema modifications.
 
+### 🚢 Real-Time Docking and Layover Simulation
+
+The application features a complete real-time simulation system that brings maritime logistics to life:
+
+**Simulation Clock**
+*   **Scaled Time**: Real-time clock that advances continuously while the application runs (default 60x speed = 1 day in ~24 real minutes)
+*   **Speed Control**: Adjustable speed settings (1x, 10x, 60x, 120x) via the "Speed" button in the sidebar
+*   **Play/Pause**: Control simulation flow with the Play/Pause button
+*   **Time Display**: Current simulation date/time shown in DD/MM/YYYY HH:MM format
+
+**Ship Simulation**
+*   **State Machine**: Ships transition through realistic states:
+  - **Waiting Queue**: Ships wait at origin port until departure time, or at intermediate ports until next leg
+  - **Traveling**: Ships move along route legs, visually displayed as orange circles moving between ports
+  - **Completed**: Ships that reach their final destination are removed from simulation
+*   **Visual Indicators**:
+  - **Orange Circles**: Ships currently traveling along routes (size: 5px)
+  - **Blue Circles**: Ships waiting at ports (size: 4px, positioned around port icon)
+  - **Active Ship Counter**: Displays total number of ships currently in the simulation
+
+**Booking Integration**
+*   **Book All Routes**: The "Book All Routes" button spawns simulated ships for each route found
+*   **Real-Time Tracking**: Watch your booked ships depart, travel, and arrive in real-time
+*   **Dynamic Queues**: Port congestion updates live as ships arrive and depart
+
+**Port Queue Management**
+*   **Dock Slots**: Each port has 2 docking slots by default
+*   **Smart Scheduling**: Ships depart only when their scheduled departure time arrives AND a dock slot is available
+*   **Queue Processing**: Estimated wait times update dynamically based on queue length and dock availability
+*   **Automatic Flow**: Ships automatically proceed to next leg when departure time is reached
+
+**Controls**
+*   Located in the "SIMULATION" section at the bottom of the sidebar
+*   **Play/Pause Button**: Start/stop simulation time
+*   **Speed Button**: Cycle through speed multipliers (1x → 10x → 60x → 120x → 1x)
+*   **Reset Button**: Clear all active ships and reset simulation state
+
+**Technical Details**
+*   No STL dependencies (custom linked list for ship management)
+*   Efficient tick-based processing (processes simulation every minute)
+*   Fractional time accumulation for smooth speed transitions
+*   Memory-safe cleanup on reset and application exit
+
 ---
 
 <div align="center">
