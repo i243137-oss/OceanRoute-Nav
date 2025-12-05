@@ -716,7 +716,34 @@ void initCoordinates() {
 }
 
 long long getMinutes(Date d, Time t) {
-    return ((long long)d.year*525600) + ((long long)d.month*43200) + ((long long)d.day*1440) + (t.hour*60) + t.minute;
+    // Calculate absolute minutes from a consistent base date: 01/01/2024 00:00
+    // This ensures proper time ordering across different dates
+    
+    long long totalMinutes = 0;
+    
+    // Add years (from 2024 base)
+    int yearDiff = d.year - 2024;
+    totalMinutes += (long long)yearDiff * 365 * 1440; // 365 days * 1440 minutes/day
+    
+    // Add months (using actual days per month for accuracy)
+    int daysInMonth[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    // Adjust February for leap year
+    if (d.year % 4 == 0 && (d.year % 100 != 0 || d.year % 400 == 0)) {
+        daysInMonth[2] = 29;
+    }
+    
+    for (int m = 1; m < d.month; m++) {
+        totalMinutes += daysInMonth[m] * 1440;
+    }
+    
+    // Add days (subtract 1 because day 1 is the first day of the month)
+    totalMinutes += (long long)(d.day - 1) * 1440;
+    
+    // Add hours and minutes
+    totalMinutes += t.hour * 60;
+    totalMinutes += t.minute;
+    
+    return totalMinutes;
 }
 
 Date parseDate(char* s) {
@@ -1264,12 +1291,12 @@ void spawnShip(Journey& journey) {
     // Initialize ship state
     ship->currentLegIndex = 0;
     
-    // Set departure and arrival times for first leg
+    // Set departure and arrival times for first leg using ROUTE'S actual voyage date
     Route* firstLeg = ship->legs[0];
     ship->departureTimeMin = getMinutes(firstLeg->voyageDate, firstLeg->departureTime);
     ship->arrivalTimeMin = getMinutes(firstLeg->voyageDate, firstLeg->arrivalTime);
     
-    // Handle day boundary crossing
+    // Handle day boundary crossing (arrival next day)
     if (firstLeg->arrivalTime.hour < firstLeg->departureTime.hour) {
         ship->arrivalTimeMin += 1440; // Add 24 hours
     }
@@ -1282,11 +1309,18 @@ void spawnShip(Journey& journey) {
     shipArrival(ports[ship->originIndex]);
     ship->state = WAITING_QUEUE;
     
-    // Log ship booking/spawn
+    // Log ship booking/spawn with detailed timing information
     char logMsg[200];
-    snprintf(logMsg, sizeof(logMsg), "[BOOK] Ship #%d booked: %s -> %s (%d legs)", 
-             ship->shipId, ports[ship->originIndex].name, ports[ship->destinationIndex].name, ship->legCount);
+    snprintf(logMsg, sizeof(logMsg), "[BOOK] Ship #%d booked: %s -> %s (%d legs, departs: %02d/%02d/%04d %02d:%02d)", 
+             ship->shipId, ports[ship->originIndex].name, ports[ship->destinationIndex].name, 
+             ship->legCount, firstLeg->voyageDate.day, firstLeg->voyageDate.month, 
+             firstLeg->voyageDate.year, firstLeg->departureTime.hour, firstLeg->departureTime.minute);
     addShipLog(logMsg, true);
+    
+    #if DEBUG_ROUTE_EVALUATION
+    printf("DEBUG SPAWN: Ship #%d spawned with departure=%lld, arrival=%lld, nextDeparture=%lld\n", 
+           ship->shipId, ship->departureTimeMin, ship->arrivalTimeMin, ship->nextDepartureMin);
+    #endif
     
     addShipToActiveList(ship);
 }
@@ -1397,6 +1431,15 @@ void processSimulationTick() {
             case DOCKED:
                 // Ship is docked and being serviced
                 // Check if scheduled departure time has arrived
+                
+                // DEBUG: Log time comparison for debugging departure issues
+                #if DEBUG_ROUTE_EVALUATION
+                printf("DEBUG DOCKED: Ship #%d at %s: simTime=%lld, nextDeparture=%lld, diff=%lld min\n",
+                       curr->shipId, ports[curr->currentPortIndex].name,
+                       simTimeMinutes, curr->nextDepartureMin,
+                       curr->nextDepartureMin - simTimeMinutes);
+                #endif
+                
                 if (simTimeMinutes >= curr->nextDepartureMin) {
                     // Departure time reached - finish service and depart
                     finishService(ports[curr->currentPortIndex]);
@@ -1853,28 +1896,65 @@ void runGraphics() {
                 if(btnDijkstra.isClicked(pos)) runDijkstraSearch(selectedStart, selectedEnd, parseDate(inputDateString));
                 if(btnBook.isClicked(pos)) {
                     findAllAvailableRoutes(selectedStart, selectedEnd, parseDate(inputDateString));
-                    // Spawn ships for all found routes
-                    for (int i = 0; i < foundJourneysCount; i++) {
-                        spawnShip(foundJourneys[i]);
-                    }
+                    
                     if (foundJourneysCount > 0) {
-                        // Initialize time simulation from USER'S ENTERED DATE
-                        Date userDate = parseDate(inputDateString);
-                        timeSim.day = userDate.day;      // e.g., 20
-                        timeSim.month = userDate.month;  // e.g., 12
-                        timeSim.year = userDate.year;    // e.g., 2024
+                        // Find earliest departure time across ALL journeys
+                        long long earliestDeparture = LLONG_MAX;
+                        for (int i = 0; i < foundJourneysCount; i++) {
+                            if (foundJourneys[i].legCount > 0) {
+                                Route* firstLeg = foundJourneys[i].legs[0];
+                                long long depTime = getMinutes(firstLeg->voyageDate, firstLeg->departureTime);
+                                if (depTime < earliestDeparture) {
+                                    earliestDeparture = depTime;
+                                }
+                            }
+                        }
                         
-                        // Get departure time from first leg of first journey
-                        Journey& journey = foundJourneys[0];
-                        Route* firstLeg = journey.legs[0];
-                        timeSim.hour = firstLeg->departureTime.hour;
-                        timeSim.minute = firstLeg->departureTime.minute;
+                        // Spawn ships for all found routes
+                        for (int i = 0; i < foundJourneysCount; i++) {
+                            spawnShip(foundJourneys[i]);
+                        }
                         
-                        // CRITICAL FIX: Synchronize simTimeMinutes with timeSim
-                        // This ensures ships can depart at their scheduled times
-                        Date simDate = {timeSim.day, timeSim.month, timeSim.year};
-                        Time simTime = {timeSim.hour, timeSim.minute};
-                        simTimeMinutes = getMinutes(simDate, simTime);
+                        // Set simulation time to the earliest departure time
+                        // This ensures all ships can depart when their scheduled time arrives
+                        simTimeMinutes = earliestDeparture;
+                        
+                        // Update timeSim display to match simTimeMinutes
+                        // Convert back from absolute minutes to Date/Time for display
+                        // Note: This is a simplified reverse calculation for display only
+                        // The actual simulation uses simTimeMinutes for accuracy
+                        long long remaining = simTimeMinutes;
+                        
+                        // Extract year
+                        int yearsPassed = (int)(remaining / (365 * 1440));
+                        timeSim.year = 2024 + yearsPassed;
+                        remaining -= (long long)yearsPassed * 365 * 1440;
+                        
+                        // Extract month (approximate using actual days per month)
+                        int daysInMonth[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+                        if (timeSim.year % 4 == 0 && (timeSim.year % 100 != 0 || timeSim.year % 400 == 0)) {
+                            daysInMonth[2] = 29;
+                        }
+                        
+                        timeSim.month = 1;
+                        long long daysRemaining = remaining / 1440;
+                        while (timeSim.month <= 12 && daysRemaining >= daysInMonth[timeSim.month]) {
+                            daysRemaining -= daysInMonth[timeSim.month];
+                            timeSim.month++;
+                        }
+                        if (timeSim.month > 12) timeSim.month = 12;
+                        
+                        // Extract day (add 1 because day 1 is the first day)
+                        timeSim.day = (int)daysRemaining + 1;
+                        remaining -= daysRemaining * 1440;
+                        
+                        // Extract hour and minute
+                        timeSim.hour = (int)(remaining / 60);
+                        timeSim.minute = (int)(remaining % 60);
+                        
+                        // Safety checks
+                        if (timeSim.month < 1) timeSim.month = 1;
+                        if (timeSim.day < 1) timeSim.day = 1;
                         
                         timeSim.isPaused = false;
                         
