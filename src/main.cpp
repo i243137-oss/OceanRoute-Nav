@@ -1870,6 +1870,12 @@ void runGraphics() {
                         timeSim.hour = firstLeg->departureTime.hour;
                         timeSim.minute = firstLeg->departureTime.minute;
                         
+                        // CRITICAL FIX: Synchronize simTimeMinutes with timeSim
+                        // This ensures ships can depart at their scheduled times
+                        Date simDate = {timeSim.day, timeSim.month, timeSim.year};
+                        Time simTime = {timeSim.hour, timeSim.minute};
+                        simTimeMinutes = getMinutes(simDate, simTime);
+                        
                         timeSim.isPaused = false;
                         
                         char buff[100];
