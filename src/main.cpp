@@ -715,6 +715,25 @@ void initCoordinates() {
     setPos("Suez", 880, 380);
 }
 
+// Helper function to check if a year is a leap year
+bool isLeapYear(int year) {
+    return (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+}
+
+// Helper function to get days in a specific month
+void getDaysInMonth(int year, int daysInMonth[13]) {
+    // Initialize with standard days per month (index 0 unused, 1-12 are months)
+    int standardDays[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    for (int i = 0; i <= 12; i++) {
+        daysInMonth[i] = standardDays[i];
+    }
+    
+    // Adjust February for leap year
+    if (isLeapYear(year)) {
+        daysInMonth[2] = 29;
+    }
+}
+
 long long getMinutes(Date d, Time t) {
     // Calculate absolute minutes from a consistent base date: 01/01/2024 00:00
     // This ensures proper time ordering across different dates
@@ -723,16 +742,12 @@ long long getMinutes(Date d, Time t) {
     
     // Add years (from 2024 base), accounting for leap years
     for (int y = 2024; y < d.year; y++) {
-        bool isLeap = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0));
-        totalMinutes += (isLeap ? 366 : 365) * 1440;
+        totalMinutes += (isLeapYear(y) ? 366 : 365) * 1440;
     }
     
     // Add months (using actual days per month for accuracy)
-    int daysInMonth[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    // Adjust February for leap year
-    if (d.year % 4 == 0 && (d.year % 100 != 0 || d.year % 400 == 0)) {
-        daysInMonth[2] = 29;
-    }
+    int daysInMonth[13];
+    getDaysInMonth(d.year, daysInMonth);
     
     for (int m = 1; m < d.month; m++) {
         totalMinutes += daysInMonth[m] * 1440;
@@ -1936,8 +1951,7 @@ void runGraphics() {
                         // Extract year (accounting for leap years)
                         timeSim.year = 2024;
                         while (remaining > 0) {
-                            bool isLeap = (timeSim.year % 4 == 0 && (timeSim.year % 100 != 0 || timeSim.year % 400 == 0));
-                            long long yearMinutes = (isLeap ? 366 : 365) * 1440;
+                            long long yearMinutes = (isLeapYear(timeSim.year) ? 366 : 365) * 1440;
                             if (remaining >= yearMinutes) {
                                 remaining -= yearMinutes;
                                 timeSim.year++;
@@ -1947,10 +1961,8 @@ void runGraphics() {
                         }
                         
                         // Extract month (using actual days per month)
-                        int daysInMonth[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-                        if (timeSim.year % 4 == 0 && (timeSim.year % 100 != 0 || timeSim.year % 400 == 0)) {
-                            daysInMonth[2] = 29;
-                        }
+                        int daysInMonth[13];
+                        getDaysInMonth(timeSim.year, daysInMonth);
                         
                         timeSim.month = 1;
                         long long daysRemaining = remaining / 1440;
@@ -1958,7 +1970,11 @@ void runGraphics() {
                             daysRemaining -= daysInMonth[timeSim.month];
                             timeSim.month++;
                         }
-                        if (timeSim.month > 12) timeSim.month = 12;
+                        // If month exceeds 12, it indicates a bug in the conversion logic
+                        if (timeSim.month > 12) {
+                            printf("ERROR: Month exceeded 12 in time conversion. This is a bug!\n");
+                            timeSim.month = 12;
+                        }
                         
                         // Extract day (add 1 because day 1 is the first day)
                         timeSim.day = (int)daysRemaining + 1;
