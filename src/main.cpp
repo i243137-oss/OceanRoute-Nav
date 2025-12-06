@@ -228,6 +228,12 @@ ShipLog shipLogs[20];
 int logCount = 0;
 int logStartIndex = 0;
 
+// ==========================================
+// User Ship Docked Port Tracking
+// ==========================================
+int userShipDockedAtPort = -1;  // -1 = not docked (traveling), otherwise port index
+bool userShipIsDocked = false;  // true when user ship is docked at a port
+
 // Time simulation
 struct TimeSimulation {
     int day;    // 1-31 (NEVER 0)
@@ -348,18 +354,8 @@ void addShipLog(const char* message, bool isUserShip, int logType = 0) {
     if (logCount < 20) logCount++;
     else logStartIndex = (logStartIndex + 1) % 20;
     
-    // Truncate message to fit sidebar (max 40 chars)
-    char truncated[200];
-    int msgLen = strlen(message);
-    if (msgLen > 40) {
-        strncpy(truncated, message, 37);
-        truncated[37] = '\0';
-        strcat(truncated, "...");
-    } else {
-        strcpy(truncated, message);
-    }
-    
-    strcpy(shipLogs[index].message, truncated);
+    // Store full message without truncation (font size reduced to 9 to fit)
+    strcpy(shipLogs[index].message, message);
     shipLogs[index].isUserShip = isUserShip;
     shipLogs[index].logType = logType;
     shipLogs[index].color = getLogColor(isUserShip, logType);
@@ -454,10 +450,12 @@ void spawnOtherShip(int portIndex) {
         portQueues[portIndex].shipCount++;
     }
     
-    // Log arrival
-    char msg[100];
-    snprintf(msg, sizeof(msg), "Ship %s-%d arriving at %s", ship.company, ship.shipNumber, ports[portIndex].name);
-    addShipLog(msg, false);
+    // Log arrival - only if user ship is docked at this port
+    if (userShipIsDocked && userShipDockedAtPort == portIndex) {
+        char msg[100];
+        snprintf(msg, sizeof(msg), "Ship %s-%d arriving at %s", ship.company, ship.shipNumber, ports[portIndex].name);
+        addShipLog(msg, false, 1);  // logType 1 = ARRIVE
+    }
 }
 
 // Update other ships
@@ -473,9 +471,12 @@ void updateOtherShips(float deltaTime) {
                 if (ship.stateTimer > 1.0f) {
                     ship.state = OtherShip::IN_QUEUE;
                     ship.stateTimer = 0;
-                    char msg[100];
-                    snprintf(msg, sizeof(msg), "Ship %s-%d docked at %s", ship.company, ship.shipNumber, ports[ship.portIndex].name);
-                    addShipLog(msg, false);
+                    // Log docking - only if user ship is docked at this port
+                    if (userShipIsDocked && userShipDockedAtPort == ship.portIndex) {
+                        char msg[100];
+                        snprintf(msg, sizeof(msg), "Ship %s-%d docked at %s", ship.company, ship.shipNumber, ports[ship.portIndex].name);
+                        addShipLog(msg, false, 3);  // logType 3 = DOCK
+                    }
                 }
                 break;
                 
@@ -487,9 +488,12 @@ void updateOtherShips(float deltaTime) {
                     if (ship.portIndex >= 0 && ship.portIndex < totalPorts && portQueues[ship.portIndex].shipCount > 0) {
                         portQueues[ship.portIndex].shipCount--;
                     }
-                    char msg[100];
-                    snprintf(msg, sizeof(msg), "Ship %s-%d departing from %s", ship.company, ship.shipNumber, ports[ship.portIndex].name);
-                    addShipLog(msg, false);
+                    // Log departure - only if user ship is docked at this port
+                    if (userShipIsDocked && userShipDockedAtPort == ship.portIndex) {
+                        char msg[100];
+                        snprintf(msg, sizeof(msg), "Ship %s-%d departing from %s", ship.company, ship.shipNumber, ports[ship.portIndex].name);
+                        addShipLog(msg, false, 2);  // logType 2 = DEPART
+                    }
                 }
                 break;
                 
@@ -1277,6 +1281,47 @@ void drawScheduledShips(sf::RenderWindow& window, sf::Font& font, sf::Vector2i m
     for (int i = 0; i < scheduledShipCount; i++) {
         ScheduledShip& ship = scheduledShips[i];
         
+        // Filter: Only show other ships at ports where user ship is docked
+        if (!ship.isUserShip) {
+            // If user is not docked at any port, don't show other ships
+            if (!userShipIsDocked) {
+                continue;
+            }
+            
+            // Determine which port this other ship is at based on its state
+            int shipPortIdx = -1;
+            
+            if (ship.state == SHIP_WAITING || ship.state == SHIP_ARRIVING || ship.state == SHIP_DEPARTING) {
+                // For these states, determine port based on simulation time relative to departure/arrival
+                // Ships are at origin before/during departure, at destination after arrival
+                
+                // Calculate when this ship departs and arrives
+                Date depDate = {ship.departureDay, ship.departureMonth, ship.departureYear};
+                Time depTime = {ship.departureHour, ship.departureMin};
+                Time arrTime = {ship.arrivalHour, ship.arrivalMin};
+                long long departureMin = getMinutes(depDate, depTime);
+                long long arrivalMin = getMinutes(depDate, arrTime);
+                if (arrTime.hour < depTime.hour) {
+                    arrivalMin += 1440; // Handle overnight voyage
+                }
+                
+                // Determine which port based on current simulation time
+                if (simTimeMinutes < departureMin + 15) {
+                    // Before/during departure - at origin port
+                    shipPortIdx = ship.originIndex;
+                } else if (simTimeMinutes >= arrivalMin) {
+                    // After arrival - at destination port
+                    shipPortIdx = ship.destIndex;
+                }
+                // During travel (between departureMin+15 and arrivalMin-15), don't show the ship
+                
+                // Skip this ship if it's not at user's docked port
+                if (shipPortIdx != userShipDockedAtPort) {
+                    continue;
+                }
+            }
+        }
+        
         sf::CircleShape shipMarker(5.0f);
         
         // Set color based on state
@@ -1853,10 +1898,18 @@ void spawnShip(Journey& journey) {
         // Dock slot available - ship starts DOCKED, waiting for departure time
         ports[ship->originIndex].inServiceCount++;
         ship->state = DOCKED;
+        
+        // User ship starts docked at origin port
+        userShipIsDocked = true;
+        userShipDockedAtPort = ship->originIndex;
     } else {
         // All dock slots occupied - ship joins queue
         shipArrival(ports[ship->originIndex]);
         ship->state = WAITING_QUEUE;
+        
+        // User ship starts in queue at origin port
+        userShipIsDocked = true;
+        userShipDockedAtPort = ship->originIndex;
     }
     
     // Log ship booking/spawn with detailed timing information
@@ -1865,7 +1918,7 @@ void spawnShip(Journey& journey) {
              ship->shipId, ports[ship->originIndex].name, ports[ship->destinationIndex].name, 
              ship->legCount, firstLeg->voyageDate.day, firstLeg->voyageDate.month, 
              firstLeg->voyageDate.year, firstLeg->departureTime.hour, firstLeg->departureTime.minute);
-    addShipLog(logMsg, true);
+    addShipLog(logMsg, true, 0);  // logType 0 = BOOK
     
     #if DEBUG_ROUTE_EVALUATION
     // printf("DEBUG SPAWN: Ship #%d spawned with departure=%lld, arrival=%lld, nextDeparture=%lld\n", 
@@ -1929,7 +1982,7 @@ void processSimulationTick() {
                     char arrivalMsg[200];
                     snprintf(arrivalMsg, sizeof(arrivalMsg), "[ARRIVE] Ship #%d arrived at %s", 
                              curr->shipId, ports[destPortIdx].name);
-                    addShipLog(arrivalMsg, true);
+                    addShipLog(arrivalMsg, true, 1);  // logType 1 = ARRIVE
                     
                     // Check if this is the final destination
                     if (curr->currentLegIndex >= curr->legCount - 1) {
@@ -1937,8 +1990,13 @@ void processSimulationTick() {
                         char completeMsg[200];
                         snprintf(completeMsg, sizeof(completeMsg), "[COMPLETE] Ship #%d completed journey at %s", 
                                  curr->shipId, ports[destPortIdx].name);
-                        addShipLog(completeMsg, true);
+                        addShipLog(completeMsg, true, 5);  // logType 5 = COMPLETE
                         curr->state = COMPLETED;
+                        
+                        // User ship completed journey - clear docked state
+                        userShipIsDocked = false;
+                        userShipDockedAtPort = -1;
+                        
                         removeShip = true;
                     } else {
                         // More legs to go - join port queue and prepare for next leg
@@ -1950,12 +2008,16 @@ void processSimulationTick() {
                         shipArrival(ports[destPortIdx]);
                         curr->state = WAITING_QUEUE;
                         
+                        // User ship arrived at intermediate port - set docked state
+                        userShipIsDocked = true;
+                        userShipDockedAtPort = destPortIdx;
+                        
                         // Log queue join
                         char queueMsg[200];
                         snprintf(queueMsg, sizeof(queueMsg), "[QUEUE] Ship #%d waiting at %s (Q:%d, Wait:%dmin)", 
                                  curr->shipId, ports[destPortIdx].name, 
                                  ports[destPortIdx].queueCount, ports[destPortIdx].estWaitMinutes);
-                        addShipLog(queueMsg, true);
+                        addShipLog(queueMsg, true, 4);  // logType 4 = QUEUE
                     }
                 }
                 break;
@@ -1973,11 +2035,13 @@ void processSimulationTick() {
                     startService(ports[curr->currentPortIndex]);
                     curr->state = DOCKED;
                     
+                    // User ship is docked (already set userShipIsDocked in WAITING_QUEUE, so no change needed)
+                    
                     // Log docking
                     char dockMsg[200];
                     snprintf(dockMsg, sizeof(dockMsg), "[DOCK] Ship #%d docked at %s (waiting for departure time)", 
                              curr->shipId, ports[curr->currentPortIndex].name);
-                    addShipLog(dockMsg, true);
+                    addShipLog(dockMsg, true, 3);  // logType 3 = DOCK
                 }
                 // Ship stays in WAITING_QUEUE until dock opens
                 break;
@@ -2008,12 +2072,16 @@ void processSimulationTick() {
                         curr->arrivalTimeMin += 1440;
                     }
                     
+                    // User ship is departing - clear docked state
+                    userShipIsDocked = false;
+                    userShipDockedAtPort = -1;
+                    
                     // Log departure
                     char departMsg[200];
                     snprintf(departMsg, sizeof(departMsg), "[DEPART] Ship #%d departed from %s to %s", 
                              curr->shipId, ports[curr->currentPortIndex].name, 
                              ports[departingLeg->destinationIndex].name);
-                    addShipLog(departMsg, true);
+                    addShipLog(departMsg, true, 2);  // logType 2 = DEPART
                     
                     curr->state = TRAVELING;
                 }
@@ -2083,7 +2151,7 @@ void updateShipSimulation(float deltaTime) {
             const char* companies[] = {"MSC", "Maersk", "CMA-CGM", "Evergreen"};
             snprintf(msg, sizeof(msg), "Ship %s-%d arrived at %s", 
                     companies[rand() % 4], rand() % 1000, shipSim.currentPortName);
-            addShipLog(msg, false);
+            addShipLog(msg, false, 1);  // logType 1 = ARRIVE
         }
         
         if (shipSim.timeAtPort >= shipSim.departureDelay) {
@@ -3025,8 +3093,8 @@ void runGraphics() {
                 window.draw(p);
             }
             
-            // Draw queue visualization if port has waiting ships
-            if (ports[i].queueCount > 0) {
+            // Draw queue visualization if port has waiting ships AND user is docked here
+            if (ports[i].queueCount > 0 && userShipIsDocked && userShipDockedAtPort == i) {
                 // Draw dashed line queue indicator - length proportional to queue size
                 float queueLineLength = 30.0f + (ports[i].queueCount * 10.0f);
                 float dashLength = 5.0f;
@@ -3081,8 +3149,10 @@ void runGraphics() {
                 window.draw(queueText);
             }
             
-            // Draw additional port queue visualization (dashed circles)
-            drawPortQueue(window, ports[i].x, ports[i].y, portQueues[i].shipCount);
+            // Draw additional port queue visualization (dashed circles) - only at user's docked port
+            if (userShipIsDocked && userShipDockedAtPort == i) {
+                drawPortQueue(window, ports[i].x, ports[i].y, portQueues[i].shipCount);
+            }
             
             if (showJourneys && portInRoute[i]) {
                 sf::Text portLabel(ports[i].name, font, 11);
@@ -3276,9 +3346,43 @@ void runGraphics() {
             screenOverlay.setPosition(0, 0);
             window.draw(screenOverlay);
             
-            // Route selection panel background (larger than preferences panel)
-            float panelWidth = 580.0f;  // Slightly wider for leg details
-            float panelHeight = 620.0f;  // Taller for multi-leg routes
+            // Calculate dynamic panel height based on routes on current page
+            int startIndex = routePageIndex * routesPerPage;
+            int endIndex = minInt(startIndex + routesPerPage, foundJourneysCount);
+            
+            // Find max leg count for routes on this page
+            int maxLegsOnPage = 1;
+            for (int i = startIndex; i < endIndex && i < startIndex + MAX_ROUTE_BUTTONS; i++) {
+                if (foundJourneys[i].legCount > maxLegsOnPage) {
+                    maxLegsOnPage = foundJourneys[i].legCount;
+                }
+            }
+            
+            // Dynamic height calculation based on max leg count on this page
+            // Components:
+            // - Base per route: 140px (header, summary, spacing)
+            // - Per leg: 60px (origin->dest + company + times)
+            // - Fixed bottom area: 200px (pagination buttons, book button, padding)
+            float baseHeightPerRoute = 140.0f;
+            float heightPerLeg = 60.0f;
+            float fixedBottomHeight = 200.0f;
+            
+            // Calculate number of routes to display on this page
+            int routesToDisplay = endIndex - startIndex;
+            if (routesToDisplay > routesPerPage) {
+                routesToDisplay = routesPerPage;
+            }
+            
+            // Total height = fixed bottom + (routes × (base + legs × height))
+            float routesHeight = routesToDisplay * (baseHeightPerRoute + (maxLegsOnPage * heightPerLeg));
+            float panelHeight = fixedBottomHeight + routesHeight;
+            
+            // Clamp to reasonable screen bounds (min 350px, max 850px)
+            if (panelHeight < 350.0f) panelHeight = 350.0f;
+            if (panelHeight > 850.0f) panelHeight = 850.0f;
+            
+            // Route selection panel background
+            float panelWidth = 580.0f;  // Keep width same
             float panelX = MAP_OFFSET_X + (1536 - panelWidth) / 2.0f;  // Center horizontally
             float panelY = (1024 - panelHeight) / 2.0f;  // Center vertically
             
@@ -3304,8 +3408,6 @@ void runGraphics() {
             
             // Display route information for current page
             float routeY = panelY + 55;
-            int startIndex = routePageIndex * routesPerPage;
-            int endIndex = minInt(startIndex + routesPerPage, foundJourneysCount);
             
             for (int i = startIndex; i < endIndex && i < startIndex + MAX_ROUTE_BUTTONS; i++) {
                 Journey& journey = foundJourneys[i];
