@@ -1250,6 +1250,29 @@ bool isMouseOverShip(sf::Vector2f mousePos, ScheduledShip& ship) {
 void drawScheduledShips(sf::RenderWindow& window, sf::Font& font, sf::Vector2i mousePos) {
     ScheduledShip* hoveredShip = nullptr;
     
+    // First pass: count waiting ships at each port to arrange them in queue
+    int waitingShipsAtPort[MAX_PORTS];
+    for (int i = 0; i < totalPorts; i++) {
+        waitingShipsAtPort[i] = 0;
+    }
+    
+    for (int i = 0; i < scheduledShipCount; i++) {
+        ScheduledShip& ship = scheduledShips[i];
+        if (ship.state == SHIP_WAITING) {
+            if (isValidPortIndex(ship.originIndex)) {
+                waitingShipsAtPort[ship.originIndex]++;
+            } else if (isValidPortIndex(ship.destIndex)) {
+                waitingShipsAtPort[ship.destIndex]++;
+            }
+        }
+    }
+    
+    // Reset counters for positioning
+    int waitingPositionAtPort[MAX_PORTS];
+    for (int i = 0; i < totalPorts; i++) {
+        waitingPositionAtPort[i] = 0;
+    }
+    
     // Draw all ships
     for (int i = 0; i < scheduledShipCount; i++) {
         ScheduledShip& ship = scheduledShips[i];
@@ -1280,11 +1303,43 @@ void drawScheduledShips(sf::RenderWindow& window, sf::Font& font, sf::Vector2i m
             shipMarker.setOrigin(5.0f, 5.0f);
         }
         
-        shipMarker.setPosition(ship.x, ship.y);
+        // Position ships in queue formation for waiting ships
+        float displayX = ship.x;
+        float displayY = ship.y;
+        
+        if (ship.state == SHIP_WAITING) {
+            // Determine which port the ship is at
+            int portIdx = -1;
+            if (isValidPortIndex(ship.originIndex)) {
+                portIdx = ship.originIndex;
+            } else if (isValidPortIndex(ship.destIndex)) {
+                portIdx = ship.destIndex;
+            }
+            
+            if (portIdx >= 0) {
+                int position = waitingPositionAtPort[portIdx]++;
+                
+                // Arrange ships in a queue formation (3 ships per row)
+                int row = position / 3;
+                int col = position % 3;
+                
+                // Offset from port position
+                float offsetX = (col - 1) * 12.0f;  // -12, 0, +12
+                float offsetY = 25.0f + (row * 12.0f);  // Below port, spaced by 12px
+                
+                displayX = ports[portIdx].x + offsetX;
+                displayY = ports[portIdx].y + offsetY;
+            }
+        }
+        
+        shipMarker.setPosition(displayX, displayY);
         window.draw(shipMarker);
         
-        // Check for hover
-        if (isMouseOverShip(sf::Vector2f(mousePos.x, mousePos.y), ship)) {
+        // Check for hover (using display position)
+        float dx = mousePos.x - displayX;
+        float dy = mousePos.y - displayY;
+        float radius = ship.isUserShip ? 7.0f : 5.0f;
+        if ((dx*dx + dy*dy) < (radius * radius)) {
             hoveredShip = &ship;
         }
     }
