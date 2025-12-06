@@ -450,10 +450,12 @@ void spawnOtherShip(int portIndex) {
         portQueues[portIndex].shipCount++;
     }
     
-    // Log arrival
-    char msg[100];
-    snprintf(msg, sizeof(msg), "Ship %s-%d arriving at %s", ship.company, ship.shipNumber, ports[portIndex].name);
-    addShipLog(msg, false);
+    // Log arrival - only if user ship is docked at this port
+    if (userShipIsDocked && userShipDockedAtPort == portIndex) {
+        char msg[100];
+        snprintf(msg, sizeof(msg), "Ship %s-%d arriving at %s", ship.company, ship.shipNumber, ports[portIndex].name);
+        addShipLog(msg, false, 1);  // logType 1 = ARRIVE
+    }
 }
 
 // Update other ships
@@ -469,9 +471,12 @@ void updateOtherShips(float deltaTime) {
                 if (ship.stateTimer > 1.0f) {
                     ship.state = OtherShip::IN_QUEUE;
                     ship.stateTimer = 0;
-                    char msg[100];
-                    snprintf(msg, sizeof(msg), "Ship %s-%d docked at %s", ship.company, ship.shipNumber, ports[ship.portIndex].name);
-                    addShipLog(msg, false);
+                    // Log docking - only if user ship is docked at this port
+                    if (userShipIsDocked && userShipDockedAtPort == ship.portIndex) {
+                        char msg[100];
+                        snprintf(msg, sizeof(msg), "Ship %s-%d docked at %s", ship.company, ship.shipNumber, ports[ship.portIndex].name);
+                        addShipLog(msg, false, 3);  // logType 3 = DOCK
+                    }
                 }
                 break;
                 
@@ -483,9 +488,12 @@ void updateOtherShips(float deltaTime) {
                     if (ship.portIndex >= 0 && ship.portIndex < totalPorts && portQueues[ship.portIndex].shipCount > 0) {
                         portQueues[ship.portIndex].shipCount--;
                     }
-                    char msg[100];
-                    snprintf(msg, sizeof(msg), "Ship %s-%d departing from %s", ship.company, ship.shipNumber, ports[ship.portIndex].name);
-                    addShipLog(msg, false);
+                    // Log departure - only if user ship is docked at this port
+                    if (userShipIsDocked && userShipDockedAtPort == ship.portIndex) {
+                        char msg[100];
+                        snprintf(msg, sizeof(msg), "Ship %s-%d departing from %s", ship.company, ship.shipNumber, ports[ship.portIndex].name);
+                        addShipLog(msg, false, 2);  // logType 2 = DEPART
+                    }
                 }
                 break;
                 
@@ -2139,7 +2147,7 @@ void updateShipSimulation(float deltaTime) {
             const char* companies[] = {"MSC", "Maersk", "CMA-CGM", "Evergreen"};
             snprintf(msg, sizeof(msg), "Ship %s-%d arrived at %s", 
                     companies[rand() % 4], rand() % 1000, shipSim.currentPortName);
-            addShipLog(msg, false);
+            addShipLog(msg, false, 1);  // logType 1 = ARRIVE
         }
         
         if (shipSim.timeAtPort >= shipSim.departureDelay) {
@@ -3081,8 +3089,8 @@ void runGraphics() {
                 window.draw(p);
             }
             
-            // Draw queue visualization if port has waiting ships
-            if (ports[i].queueCount > 0) {
+            // Draw queue visualization if port has waiting ships AND user is docked here
+            if (ports[i].queueCount > 0 && userShipIsDocked && userShipDockedAtPort == i) {
                 // Draw dashed line queue indicator - length proportional to queue size
                 float queueLineLength = 30.0f + (ports[i].queueCount * 10.0f);
                 float dashLength = 5.0f;
@@ -3137,8 +3145,10 @@ void runGraphics() {
                 window.draw(queueText);
             }
             
-            // Draw additional port queue visualization (dashed circles)
-            drawPortQueue(window, ports[i].x, ports[i].y, portQueues[i].shipCount);
+            // Draw additional port queue visualization (dashed circles) - only at user's docked port
+            if (userShipIsDocked && userShipDockedAtPort == i) {
+                drawPortQueue(window, ports[i].x, ports[i].y, portQueues[i].shipCount);
+            }
             
             if (showJourneys && portInRoute[i]) {
                 sf::Text portLabel(ports[i].name, font, 11);
