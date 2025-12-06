@@ -1288,28 +1288,32 @@ void drawScheduledShips(sf::RenderWindow& window, sf::Font& font, sf::Vector2i m
                 continue;
             }
             
-            // Only show other ships at the port where user is docked
+            // Determine which port this other ship is at based on its state
+            int shipPortIdx = -1;
+            
             if (ship.state == SHIP_WAITING || ship.state == SHIP_ARRIVING || ship.state == SHIP_DEPARTING) {
-                // Determine which port this ship is at
-                int shipPortIdx = -1;
-                if (ship.state == SHIP_WAITING) {
-                    // Ship waiting at origin or destination
-                    if (isValidPortIndex(ship.originIndex)) {
-                        shipPortIdx = ship.originIndex;
-                    } else if (isValidPortIndex(ship.destIndex)) {
-                        shipPortIdx = ship.destIndex;
-                    }
-                } else if (ship.state == SHIP_ARRIVING) {
-                    // Ship arriving at origin or destination
-                    if (isValidPortIndex(ship.originIndex)) {
-                        shipPortIdx = ship.originIndex;
-                    }
-                } else if (ship.state == SHIP_DEPARTING) {
-                    // Ship departing from origin
-                    if (isValidPortIndex(ship.originIndex)) {
-                        shipPortIdx = ship.originIndex;
-                    }
+                // For these states, determine port based on simulation time relative to departure/arrival
+                // Ships are at origin before/during departure, at destination after arrival
+                
+                // Calculate when this ship departs and arrives
+                Date depDate = {ship.departureDay, ship.departureMonth, ship.departureYear};
+                Time depTime = {ship.departureHour, ship.departureMin};
+                Time arrTime = {ship.arrivalHour, ship.arrivalMin};
+                long long departureMin = getMinutes(depDate, depTime);
+                long long arrivalMin = getMinutes(depDate, arrTime);
+                if (arrTime.hour < depTime.hour) {
+                    arrivalMin += 1440; // Handle overnight voyage
                 }
+                
+                // Determine which port based on current simulation time
+                if (simTimeMinutes < departureMin + 15) {
+                    // Before/during departure - at origin port
+                    shipPortIdx = ship.originIndex;
+                } else if (simTimeMinutes >= arrivalMin) {
+                    // After arrival - at destination port
+                    shipPortIdx = ship.destIndex;
+                }
+                // During travel (between departureMin+15 and arrivalMin-15), don't show the ship
                 
                 // Skip this ship if it's not at user's docked port
                 if (shipPortIdx != userShipDockedAtPort) {
@@ -3354,22 +3358,28 @@ void runGraphics() {
                 }
             }
             
-            // Dynamic height calculation based on max leg count
-            // Base: Title(50) + Route header per route(40) + Summary per route(50) + Buttons(150) + Padding(50)
-            // Per leg: 60px (leg info)
-            float baseHeightPerRoute = 140.0f;  // Header + summary + spacing
-            float perLegHeight = 60.0f;
-            float buttonsAndPaddingHeight = 200.0f;
+            // Dynamic height calculation based on max leg count on this page
+            // Components:
+            // - Base per route: 140px (header, summary, spacing)
+            // - Per leg: 60px (origin->dest + company + times)
+            // - Fixed bottom area: 200px (pagination buttons, book button, padding)
+            float baseHeightPerRoute = 140.0f;
+            float heightPerLeg = 60.0f;
+            float fixedBottomHeight = 200.0f;
             
-            // Calculate height for displaying routes
+            // Calculate number of routes to display on this page
             int routesToDisplay = endIndex - startIndex;
-            if (routesToDisplay > routesPerPage) routesToDisplay = routesPerPage;
+            if (routesToDisplay > routesPerPage) {
+                routesToDisplay = routesPerPage;
+            }
             
-            float panelHeight = buttonsAndPaddingHeight + (routesToDisplay * (baseHeightPerRoute + (maxLegsOnPage * perLegHeight)));
+            // Total height = fixed bottom + (routes × (base + legs × height))
+            float routesHeight = routesToDisplay * (baseHeightPerRoute + (maxLegsOnPage * heightPerLeg));
+            float panelHeight = fixedBottomHeight + routesHeight;
             
-            // Clamp height to reasonable bounds
+            // Clamp to reasonable screen bounds (min 350px, max 850px)
             if (panelHeight < 350.0f) panelHeight = 350.0f;
-            if (panelHeight > 850.0f) panelHeight = 850.0f;  // Increased max to accommodate more legs
+            if (panelHeight > 850.0f) panelHeight = 850.0f;
             
             // Route selection panel background
             float panelWidth = 580.0f;  // Keep width same
