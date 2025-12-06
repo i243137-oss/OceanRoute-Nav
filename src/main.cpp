@@ -205,12 +205,22 @@ OtherShip otherShips[20];
 int otherShipCount = 0;
 
 // ==========================================
+// Scheduled Ships System (All Ships)
+// ==========================================
+const int MAX_SCHEDULED_SHIPS = 100;
+ScheduledShip scheduledShips[MAX_SCHEDULED_SHIPS];
+int scheduledShipCount = 0;
+int nextScheduledShipId = 1;
+
+// ==========================================
 // Ship Logs System
 // ==========================================
 struct ShipLog {
     char message[200];
     sf::Color color;
     float timestamp;
+    bool isUserShip;  // true if this is user's ship
+    int logType;      // 0=BOOK, 1=ARRIVE, 2=DEPART, 3=DOCK, 4=QUEUE, 5=COMPLETE
 };
 
 // Log storage (circular buffer)
@@ -318,13 +328,41 @@ bool portHasPreferredCompanyRoute(int portIndex) {
 // ==========================================
 // Ship Logs & Simulation Functions
 // ==========================================
-void addShipLog(const char* message, bool isOurShip) {
+
+// Get log color based on ship type and log type
+sf::Color getLogColor(bool isUserShip, int logType) {
+    if (isUserShip) {
+        return sf::Color::Cyan;  // User's ship - Cyan
+    } else {
+        switch(logType) {
+            case 1: return sf::Color::Yellow;          // Other ship ARRIVE - Yellow
+            case 2: return sf::Color(255, 165, 0);     // Other ship DEPART - Orange
+            case 3: return sf::Color(150, 150, 150);   // DOCK - Gray
+            default: return sf::Color(200, 200, 100);  // Other - Light Yellow
+        }
+    }
+}
+
+void addShipLog(const char* message, bool isUserShip, int logType = 0) {
     int index = (logStartIndex + logCount) % 20;
     if (logCount < 20) logCount++;
     else logStartIndex = (logStartIndex + 1) % 20;
     
-    strcpy(shipLogs[index].message, message);
-    shipLogs[index].color = isOurShip ? sf::Color::Green : sf::Color(255, 165, 0); // Green for our ship, Orange for others
+    // Truncate message to fit sidebar (max 40 chars)
+    char truncated[200];
+    int msgLen = strlen(message);
+    if (msgLen > 40) {
+        strncpy(truncated, message, 37);
+        truncated[37] = '\0';
+        strcat(truncated, "...");
+    } else {
+        strcpy(truncated, message);
+    }
+    
+    strcpy(shipLogs[index].message, truncated);
+    shipLogs[index].isUserShip = isUserShip;
+    shipLogs[index].logType = logType;
+    shipLogs[index].color = getLogColor(isUserShip, logType);
     shipLogs[index].timestamp = globalAnimClock.getElapsedTime().asSeconds();
 }
 
@@ -982,6 +1020,292 @@ void loadData() {
                 r->next = ports[u].headRoute; ports[u].headRoute = r;
             }
         }
+    }
+}
+
+// ==========================================
+// Scheduled Ships Functions
+// ==========================================
+
+// Get state string for display
+const char* getStateString(ScheduledShipState state) {
+    switch(state) {
+        case SHIP_ARRIVING: return "Arriving";
+        case SHIP_WAITING: return "Waiting";
+        case SHIP_DEPARTING: return "Departing";
+        case SHIP_TRAVELING: return "Traveling";
+        case SHIP_COMPLETED: return "Completed";
+        default: return "Unknown";
+    }
+}
+
+// Linear interpolation for smooth position transitions
+float lerp(float a, float b, float t) {
+    return a + (b - a) * t;
+}
+
+// Load all scheduled ships from Routes.txt
+void loadScheduledShips() {
+    scheduledShipCount = 0;
+    
+    ifstream fr("Routes.txt");
+    if(!fr.is_open()) return;
+    
+    char o[50], d[50], co[50];
+    char dateStr[20], depStr[10], arrStr[10];
+    int c;
+    
+    while(fr >> o >> d >> dateStr >> depStr >> arrStr >> c >> co) {
+        if (scheduledShipCount >= MAX_SCHEDULED_SHIPS) break;
+        
+        ScheduledShip& ship = scheduledShips[scheduledShipCount];
+        
+        // Parse date and time
+        int day, month, year;
+        sscanf(dateStr, "%d/%d/%d", &day, &month, &year);
+        sscanf(depStr, "%d/%d", &ship.departureHour, &ship.departureMin);
+        sscanf(arrStr, "%d/%d", &ship.arrivalHour, &ship.arrivalMin);
+        
+        // Set ship data
+        ship.id = nextScheduledShipId++;
+        strncpy(ship.originPort, o, sizeof(ship.originPort) - 1);
+        ship.originPort[sizeof(ship.originPort) - 1] = '\0';
+        strncpy(ship.destPort, d, sizeof(ship.destPort) - 1);
+        ship.destPort[sizeof(ship.destPort) - 1] = '\0';
+        strncpy(ship.company, co, sizeof(ship.company) - 1);
+        ship.company[sizeof(ship.company) - 1] = '\0';
+        ship.departureDay = day;
+        ship.departureMonth = month;
+        ship.departureYear = year;
+        ship.isUserShip = false;  // Will be set to true when user books
+        
+        // Get port indices
+        ship.originIndex = getPortIndex(o);
+        ship.destIndex = getPortIndex(d);
+        
+        // Initialize state
+        ship.state = SHIP_WAITING;  // Start at origin port waiting
+        ship.progress = 0.0f;
+        
+        // Set initial position at origin port
+        if (ship.originIndex >= 0 && ship.originIndex < totalPorts) {
+            ship.x = ports[ship.originIndex].x;
+            ship.y = ports[ship.originIndex].y;
+        }
+        
+        scheduledShipCount++;
+    }
+    
+    fr.close();
+}
+
+// Update scheduled ships based on simulation time
+void updateScheduledShips(float deltaTime) {
+    // Speed multiplier from simSpeed (minutes per second)
+    float speedMultiplier = simSpeed / 60.0f;  // Convert to hours per second
+    
+    for (int i = 0; i < scheduledShipCount; i++) {
+        ScheduledShip& ship = scheduledShips[i];
+        
+        // Calculate departure and arrival times in minutes
+        Date depDate = {ship.departureDay, ship.departureMonth, ship.departureYear};
+        Time depTime = {ship.departureHour, ship.departureMin};
+        Time arrTime = {ship.arrivalHour, ship.arrivalMin};
+        
+        long long departureMin = getMinutes(depDate, depTime);
+        long long arrivalMin = getMinutes(depDate, arrTime);
+        
+        // Handle overnight voyages
+        if (arrTime.hour < depTime.hour) {
+            arrivalMin += 1440; // Add 24 hours
+        }
+        
+        // Determine ship state based on simulation time
+        if (simTimeMinutes < departureMin - 30) {
+            // More than 30 minutes before departure - waiting at origin
+            ship.state = SHIP_WAITING;
+            if (ship.originIndex >= 0 && ship.originIndex < totalPorts) {
+                ship.x = ports[ship.originIndex].x;
+                ship.y = ports[ship.originIndex].y;
+            }
+        }
+        else if (simTimeMinutes < departureMin) {
+            // Within 30 minutes of departure - arriving at port (animation)
+            ship.state = SHIP_ARRIVING;
+            ship.progress = (30.0f - (departureMin - simTimeMinutes)) / 30.0f;
+            if (ship.progress < 0.0f) ship.progress = 0.0f;
+            if (ship.progress > 1.0f) ship.progress = 1.0f;
+            
+            // Interpolate position from slightly away to port
+            if (ship.originIndex >= 0 && ship.originIndex < totalPorts) {
+                float portX = ports[ship.originIndex].x;
+                float portY = ports[ship.originIndex].y;
+                float startX = portX - 30.0f;
+                float startY = portY - 30.0f;
+                ship.x = lerp(startX, portX, ship.progress);
+                ship.y = lerp(startY, portY, ship.progress);
+            }
+        }
+        else if (simTimeMinutes >= departureMin && simTimeMinutes < departureMin + 15) {
+            // First 15 minutes after departure - departing from origin
+            ship.state = SHIP_DEPARTING;
+            ship.progress = (simTimeMinutes - departureMin) / 15.0f;
+            if (ship.progress < 0.0f) ship.progress = 0.0f;
+            if (ship.progress > 1.0f) ship.progress = 1.0f;
+            
+            // Interpolate position from origin port outward
+            if (ship.originIndex >= 0 && ship.originIndex < totalPorts &&
+                ship.destIndex >= 0 && ship.destIndex < totalPorts) {
+                float originX = ports[ship.originIndex].x;
+                float originY = ports[ship.originIndex].y;
+                float destX = ports[ship.destIndex].x;
+                float destY = ports[ship.destIndex].y;
+                
+                // Move 5% of the way toward destination during departure
+                float partialProgress = ship.progress * 0.05f;
+                ship.x = lerp(originX, destX, partialProgress);
+                ship.y = lerp(originY, destY, partialProgress);
+            }
+        }
+        else if (simTimeMinutes >= departureMin + 15 && simTimeMinutes < arrivalMin - 15) {
+            // In transit - traveling between ports
+            ship.state = SHIP_TRAVELING;
+            long long travelDuration = arrivalMin - departureMin - 30; // Exclude departure/arrival animations
+            long long elapsed = simTimeMinutes - (departureMin + 15);
+            ship.progress = (float)elapsed / (float)travelDuration;
+            if (ship.progress < 0.0f) ship.progress = 0.0f;
+            if (ship.progress > 1.0f) ship.progress = 1.0f;
+            
+            // Interpolate position from origin to destination (excluding departure/arrival phases)
+            if (ship.originIndex >= 0 && ship.originIndex < totalPorts &&
+                ship.destIndex >= 0 && ship.destIndex < totalPorts) {
+                float originX = ports[ship.originIndex].x;
+                float originY = ports[ship.originIndex].y;
+                float destX = ports[ship.destIndex].x;
+                float destY = ports[ship.destIndex].y;
+                
+                // Map progress from 0.05 to 0.95 (after departure, before arrival)
+                float fullProgress = 0.05f + ship.progress * 0.90f;
+                ship.x = lerp(originX, destX, fullProgress);
+                ship.y = lerp(originY, destY, fullProgress);
+            }
+        }
+        else if (simTimeMinutes >= arrivalMin - 15 && simTimeMinutes < arrivalMin) {
+            // Last 15 minutes before arrival - arriving at destination
+            ship.state = SHIP_ARRIVING;
+            ship.progress = (simTimeMinutes - (arrivalMin - 15)) / 15.0f;
+            if (ship.progress < 0.0f) ship.progress = 0.0f;
+            if (ship.progress > 1.0f) ship.progress = 1.0f;
+            
+            // Interpolate position toward destination port
+            if (ship.originIndex >= 0 && ship.originIndex < totalPorts &&
+                ship.destIndex >= 0 && ship.destIndex < totalPorts) {
+                float originX = ports[ship.originIndex].x;
+                float originY = ports[ship.originIndex].y;
+                float destX = ports[ship.destIndex].x;
+                float destY = ports[ship.destIndex].y;
+                
+                // Map progress from 0.95 to 1.0 (final approach)
+                float fullProgress = 0.95f + ship.progress * 0.05f;
+                ship.x = lerp(originX, destX, fullProgress);
+                ship.y = lerp(originY, destY, fullProgress);
+            }
+        }
+        else if (simTimeMinutes >= arrivalMin) {
+            // After arrival - waiting at destination
+            ship.state = SHIP_WAITING;
+            if (ship.destIndex >= 0 && ship.destIndex < totalPorts) {
+                ship.x = ports[ship.destIndex].x;
+                ship.y = ports[ship.destIndex].y;
+            }
+        }
+    }
+}
+
+// Check if mouse is over a ship
+bool isMouseOverShip(sf::Vector2f mousePos, ScheduledShip& ship, float radius = 5.0f) {
+    float dx = mousePos.x - ship.x;
+    float dy = mousePos.y - ship.y;
+    return (dx*dx + dy*dy) < (radius * radius);
+}
+
+// Draw ships at all ports
+void drawScheduledShips(sf::RenderWindow& window, sf::Font& font, sf::Vector2i mousePos) {
+    ScheduledShip* hoveredShip = nullptr;
+    
+    // Draw all ships
+    for (int i = 0; i < scheduledShipCount; i++) {
+        ScheduledShip& ship = scheduledShips[i];
+        
+        sf::CircleShape shipMarker(5.0f);
+        
+        // Set color based on state
+        if (ship.state == SHIP_ARRIVING) {
+            shipMarker.setFillColor(sf::Color::Green);
+        }
+        else if (ship.state == SHIP_WAITING) {
+            shipMarker.setFillColor(sf::Color::Yellow);
+        }
+        else if (ship.state == SHIP_DEPARTING) {
+            shipMarker.setFillColor(sf::Color(255, 165, 0)); // Orange
+        }
+        else if (ship.state == SHIP_TRAVELING) {
+            // Don't draw ships in TRAVELING state here (they're drawn separately)
+            continue;
+        }
+        
+        // User's ship is different (cyan and larger)
+        if (ship.isUserShip) {
+            shipMarker.setFillColor(sf::Color::Cyan);
+            shipMarker.setRadius(7.0f);
+            shipMarker.setOrigin(7.0f, 7.0f);
+        } else {
+            shipMarker.setOrigin(5.0f, 5.0f);
+        }
+        
+        shipMarker.setPosition(ship.x, ship.y);
+        window.draw(shipMarker);
+        
+        // Check for hover
+        if (isMouseOverShip(sf::Vector2f(mousePos.x, mousePos.y), ship)) {
+            hoveredShip = &ship;
+        }
+    }
+    
+    // Draw tooltip if hovering over a ship
+    if (hoveredShip != nullptr) {
+        // Tooltip background
+        sf::RectangleShape tooltip(sf::Vector2f(220, 160));
+        tooltip.setFillColor(sf::Color(20, 30, 40, 230));
+        tooltip.setOutlineColor(sf::Color::Cyan);
+        tooltip.setOutlineThickness(1);
+        tooltip.setPosition(mousePos.x + 15, mousePos.y + 15);
+        window.draw(tooltip);
+        
+        // Tooltip text
+        char tooltipText[300];
+        snprintf(tooltipText, sizeof(tooltipText),
+            "Ship: %s #%d\n"
+            "From: %s\n"
+            "To: %s\n"
+            "Company: %s\n"
+            "Departs: %02d:%02d\n"
+            "Arrives: %02d:%02d\n"
+            "Status: %s",
+            hoveredShip->isUserShip ? "Your Ship" : "Other",
+            hoveredShip->id,
+            hoveredShip->originPort,
+            hoveredShip->destPort,
+            hoveredShip->company,
+            hoveredShip->departureHour, hoveredShip->departureMin,
+            hoveredShip->arrivalHour, hoveredShip->arrivalMin,
+            getStateString(hoveredShip->state)
+        );
+        
+        sf::Text tooltipTextObj(tooltipText, font, 11);
+        tooltipTextObj.setFillColor(sf::Color::White);
+        tooltipTextObj.setPosition(mousePos.x + 20, mousePos.y + 20);
+        window.draw(tooltipTextObj);
     }
 }
 
@@ -2351,6 +2675,7 @@ void runGraphics() {
         updateShipSimulation(deltaTime);
         updateSimulatedTime(deltaTime);
         updateOtherShips(deltaTime);
+        updateScheduledShips(deltaTime);  // Update all scheduled ships
         
         // Count active ships (for old system)
         int activeShipCount = 0;
@@ -2720,6 +3045,9 @@ void runGraphics() {
         // Draw other ships in queue
         drawOtherShipsInQueue(window);
         
+        // Draw all scheduled ships (arriving, waiting, departing at ports)
+        drawScheduledShips(window, font, mPos);
+        
         // Draw time simulation display on TOP of the map (not in sidebar)
         // Always show the clock (not just when simulation is running)
         {
@@ -3063,6 +3391,7 @@ int main() {
     
     loadData();
     initCoordinates();
+    loadScheduledShips();  // Load all scheduled ships from Routes.txt
     
     // Initialize simulation time to base date
     Date baseDate = {SIM_BASE_DAY, SIM_BASE_MONTH, SIM_BASE_YEAR};

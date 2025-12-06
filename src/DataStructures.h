@@ -244,7 +244,37 @@ struct Ship {
 };
 
 // ==========================================
-// 8. Simulation Clock
+// 8. Scheduled Ship State Machine (All Ships at Ports)
+// ==========================================
+enum ScheduledShipState {
+    SHIP_ARRIVING = 0,   // Moving toward port
+    SHIP_WAITING = 1,    // Docked/waiting at port
+    SHIP_DEPARTING = 2,  // Leaving port
+    SHIP_TRAVELING = 3,  // En route between ports
+    SHIP_COMPLETED = 4   // Reached final destination
+};
+
+// Scheduled Ship structure for all ships in simulation (including user's ship)
+struct ScheduledShip {
+    int id;                          // Unique ship ID
+    char originPort[32];             // Origin port name
+    char destPort[32];               // Destination port name
+    char company[32];                // Shipping company
+    int departureHour, departureMin; // Departure time
+    int arrivalHour, arrivalMin;     // Arrival time
+    int departureDay, departureMonth, departureYear; // Departure date
+    bool isUserShip;                 // true if booked by user
+    
+    int originIndex;                 // Origin port index
+    int destIndex;                   // Destination port index
+    ScheduledShipState state;        // Current state
+    float progress;                  // 0.0 to 1.0 for animation
+    
+    float x, y;                      // Current position for rendering
+};
+
+// ==========================================
+// 9. Simulation Clock
 // ==========================================
 const int SIM_SPEED_1X = 1;
 const int SIM_SPEED_10X = 10;
@@ -257,7 +287,7 @@ const int SIM_BASE_MONTH = 12;
 const int SIM_BASE_YEAR = 2024;
 
 // ==========================================
-// 9. Queue Management Helper Functions
+// 10. Queue Management Helper Functions
 // ==========================================
 const int DEFAULT_SERVICE_TIME_MINUTES = 240; // 4 hours average service time per ship
 
