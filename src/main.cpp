@@ -1044,12 +1044,22 @@ float lerp(float a, float b, float t) {
     return a + (b - a) * t;
 }
 
+// Helper function to validate port index
+inline bool isValidPortIndex(int index) {
+    return index >= 0 && index < totalPorts;
+}
+
 // Load all scheduled ships from Routes.txt
 void loadScheduledShips() {
     scheduledShipCount = 0;
     
     ifstream fr("Routes.txt");
-    if(!fr.is_open()) return;
+    if(!fr.is_open()) {
+        // Routes.txt not found - this is non-fatal as the app can still function
+        // without scheduled ships. Log for debugging purposes.
+        cout << "Warning: Routes.txt not found. No scheduled ships loaded." << endl;
+        return;
+    }
     
     char o[50], d[50], co[50];
     char dateStr[20], depStr[10], arrStr[10];
@@ -1088,7 +1098,7 @@ void loadScheduledShips() {
         ship.progress = 0.0f;
         
         // Set initial position at origin port
-        if (ship.originIndex >= 0 && ship.originIndex < totalPorts) {
+        if (isValidPortIndex(ship.originIndex)) {
             ship.x = ports[ship.originIndex].x;
             ship.y = ports[ship.originIndex].y;
         }
@@ -1124,7 +1134,7 @@ void updateScheduledShips(float deltaTime) {
         if (simTimeMinutes < departureMin - 30) {
             // More than 30 minutes before departure - waiting at origin
             ship.state = SHIP_WAITING;
-            if (ship.originIndex >= 0 && ship.originIndex < totalPorts) {
+            if (isValidPortIndex(ship.originIndex)) {
                 ship.x = ports[ship.originIndex].x;
                 ship.y = ports[ship.originIndex].y;
             }
@@ -1137,7 +1147,7 @@ void updateScheduledShips(float deltaTime) {
             if (ship.progress > 1.0f) ship.progress = 1.0f;
             
             // Interpolate position from slightly away to port
-            if (ship.originIndex >= 0 && ship.originIndex < totalPorts) {
+            if (isValidPortIndex(ship.originIndex)) {
                 float portX = ports[ship.originIndex].x;
                 float portY = ports[ship.originIndex].y;
                 float startX = portX - 30.0f;
@@ -1154,8 +1164,7 @@ void updateScheduledShips(float deltaTime) {
             if (ship.progress > 1.0f) ship.progress = 1.0f;
             
             // Interpolate position from origin port outward
-            if (ship.originIndex >= 0 && ship.originIndex < totalPorts &&
-                ship.destIndex >= 0 && ship.destIndex < totalPorts) {
+            if (isValidPortIndex(ship.originIndex) && isValidPortIndex(ship.destIndex)) {
                 float originX = ports[ship.originIndex].x;
                 float originY = ports[ship.originIndex].y;
                 float destX = ports[ship.destIndex].x;
@@ -1171,23 +1180,30 @@ void updateScheduledShips(float deltaTime) {
             // In transit - traveling between ports
             ship.state = SHIP_TRAVELING;
             long long travelDuration = arrivalMin - departureMin - 30; // Exclude departure/arrival animations
-            long long elapsed = simTimeMinutes - (departureMin + 15);
-            ship.progress = (float)elapsed / (float)travelDuration;
-            if (ship.progress < 0.0f) ship.progress = 0.0f;
-            if (ship.progress > 1.0f) ship.progress = 1.0f;
             
-            // Interpolate position from origin to destination (excluding departure/arrival phases)
-            if (ship.originIndex >= 0 && ship.originIndex < totalPorts &&
-                ship.destIndex >= 0 && ship.destIndex < totalPorts) {
-                float originX = ports[ship.originIndex].x;
-                float originY = ports[ship.originIndex].y;
-                float destX = ports[ship.destIndex].x;
-                float destY = ports[ship.destIndex].y;
+            // Handle short journeys (30 minutes or less) by skipping TRAVELING state
+            if (travelDuration <= 0) {
+                // Skip directly to final arrival phase
+                ship.state = SHIP_ARRIVING;
+                ship.progress = 0.0f;
+            } else {
+                long long elapsed = simTimeMinutes - (departureMin + 15);
+                ship.progress = (float)elapsed / (float)travelDuration;
+                if (ship.progress < 0.0f) ship.progress = 0.0f;
+                if (ship.progress > 1.0f) ship.progress = 1.0f;
                 
-                // Map progress from 0.05 to 0.95 (after departure, before arrival)
-                float fullProgress = 0.05f + ship.progress * 0.90f;
-                ship.x = lerp(originX, destX, fullProgress);
-                ship.y = lerp(originY, destY, fullProgress);
+                // Interpolate position from origin to destination (excluding departure/arrival phases)
+                if (isValidPortIndex(ship.originIndex) && isValidPortIndex(ship.destIndex)) {
+                    float originX = ports[ship.originIndex].x;
+                    float originY = ports[ship.originIndex].y;
+                    float destX = ports[ship.destIndex].x;
+                    float destY = ports[ship.destIndex].y;
+                    
+                    // Map progress from 0.05 to 0.95 (after departure, before arrival)
+                    float fullProgress = 0.05f + ship.progress * 0.90f;
+                    ship.x = lerp(originX, destX, fullProgress);
+                    ship.y = lerp(originY, destY, fullProgress);
+                }
             }
         }
         else if (simTimeMinutes >= arrivalMin - 15 && simTimeMinutes < arrivalMin) {
@@ -1198,8 +1214,7 @@ void updateScheduledShips(float deltaTime) {
             if (ship.progress > 1.0f) ship.progress = 1.0f;
             
             // Interpolate position toward destination port
-            if (ship.originIndex >= 0 && ship.originIndex < totalPorts &&
-                ship.destIndex >= 0 && ship.destIndex < totalPorts) {
+            if (isValidPortIndex(ship.originIndex) && isValidPortIndex(ship.destIndex)) {
                 float originX = ports[ship.originIndex].x;
                 float originY = ports[ship.originIndex].y;
                 float destX = ports[ship.destIndex].x;
@@ -1214,7 +1229,7 @@ void updateScheduledShips(float deltaTime) {
         else if (simTimeMinutes >= arrivalMin) {
             // After arrival - waiting at destination
             ship.state = SHIP_WAITING;
-            if (ship.destIndex >= 0 && ship.destIndex < totalPorts) {
+            if (isValidPortIndex(ship.destIndex)) {
                 ship.x = ports[ship.destIndex].x;
                 ship.y = ports[ship.destIndex].y;
             }
@@ -1223,7 +1238,9 @@ void updateScheduledShips(float deltaTime) {
 }
 
 // Check if mouse is over a ship
-bool isMouseOverShip(sf::Vector2f mousePos, ScheduledShip& ship, float radius = 5.0f) {
+bool isMouseOverShip(sf::Vector2f mousePos, ScheduledShip& ship) {
+    // Use radius based on whether it's a user ship or not
+    float radius = ship.isUserShip ? 7.0f : 5.0f;
     float dx = mousePos.x - ship.x;
     float dy = mousePos.y - ship.y;
     return (dx*dx + dy*dy) < (radius * radius);
