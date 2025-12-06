@@ -263,6 +263,7 @@ const int COMPANIES_BUFFER_SIZE = 250;
 const int MAX_LEGS_TO_DISPLAY = 5;  // Maximum number of legs to display in route panel
 const int PORT_NAME_MAX_LEN = 20;   // Maximum length for port names in display
 const int COMPANY_NAME_MAX_LEN = 15; // Maximum length for company names in display
+const int MAX_ROUTE_BUTTONS = 10;    // Maximum number of route selection buttons
 
 // Route colors for multi-route visualization
 // Note: Array size matches MAX_ROUTES_TO_DISPLAY (5 colors for 5 max routes)
@@ -900,7 +901,7 @@ void formatLegInfo(Journey& journey, int legIndex, int originPortIndex, char* bu
     truncateString(shortDest, dest, PORT_NAME_MAX_LEN);
     truncateString(shortCompany, leg->company, COMPANY_NAME_MAX_LEN);
     
-    snprintf(buffer, bufferSize, "Leg %d: %s → %s\n  Company: %s\n  Departs: %02d:%02d → Arrives: %02d:%02d",
+    snprintf(buffer, bufferSize, "Leg %d: %s -> %s\n  Company: %s\n  Departs: %02d:%02d -> Arrives: %02d:%02d",
              legIndex + 1, shortOrigin, shortDest, shortCompany,
              leg->departureTime.hour, leg->departureTime.minute,
              leg->arrivalTime.hour, leg->arrivalTime.minute);
@@ -1857,15 +1858,15 @@ void runGraphics() {
     txtCloseBtn.setStyle(sf::Text::Bold);
     
     // Route Selection Panel overlay elements (positioned over map area)
-    Button btnSelectRoute[10];  // Up to 10 route selection buttons
+    Button btnSelectRoute[MAX_ROUTE_BUTTONS];  // Up to MAX_ROUTE_BUTTONS route selection buttons
     Button btnBookSelected;     // "Book Selected Route" button
     Button btnCancelRoutePanel; // Close/Cancel button
     Button btnPrevPage;         // "◄ PREV" button for pagination
     Button btnNextPage;         // "NEXT ►" button for pagination
-    sf::Text txtRouteInfo[10];  // Route information display
+    sf::Text txtRouteInfo[MAX_ROUTE_BUTTONS];  // Route information display
     
     // Initialize route selection panel components
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < MAX_ROUTE_BUTTONS; i++) {
         txtRouteInfo[i].setFont(font);
         txtRouteInfo[i].setCharacterSize(11);
         txtRouteInfo[i].setFillColor(COL_TEXT_WHITE);
@@ -2056,31 +2057,27 @@ void runGraphics() {
                 
                 // Handle Route Selection Panel clicks
                 if (showRouteSelectionPanel) {
-                    // Check if clicking pagination buttons
+                    // Track if any button was clicked inside the panel
+                    bool clickedInsidePanel = false;
+                    
+                    // Check if clicking pagination buttons FIRST
                     if (btnPrevPage.isClicked(pos) && routePageIndex > 0) {
                         routePageIndex--;
+                        clickedInsidePanel = true;
                     }
-                    
-                    if (btnNextPage.isClicked(pos) && routePageIndex < totalRoutePages - 1) {
+                    else if (btnNextPage.isClicked(pos) && routePageIndex < totalRoutePages - 1) {
                         routePageIndex++;
+                        clickedInsidePanel = true;
                     }
-                    
-                    // Check if clicking route selection buttons
-                    bool clickedRouteButton = false;
-                    int startIndex = routePageIndex * routesPerPage;
-                    int endIndex = minInt(startIndex + routesPerPage, foundJourneysCount);
-                    
-                    for (int i = startIndex; i < endIndex && i < 10; i++) {
-                        int displayIndex = i - startIndex;
-                        if (btnSelectRoute[displayIndex].isClicked(pos)) {
-                            selectedRouteIndex = i;  // Store actual index in foundJourneys
-                            clickedRouteButton = true;
-                            break;
-                        }
+                    // Check if clicking cancel/close button
+                    else if (btnCancelRoutePanel.isClicked(pos)) {
+                        showRouteSelectionPanel = false;
+                        selectedRouteIndex = -1;
+                        strcpy(statusMessage, "Booking cancelled");
+                        clickedInsidePanel = true;
                     }
-                    
                     // Check if clicking "Book Selected Route" button
-                    if (btnBookSelected.isClicked(pos) && selectedRouteIndex >= 0 && selectedRouteIndex < foundJourneysCount) {
+                    else if (btnBookSelected.isClicked(pos) && selectedRouteIndex >= 0 && selectedRouteIndex < foundJourneysCount) {
                         // Set confirmed route index to show only this route on map
                         confirmedRouteIndex = selectedRouteIndex;
                         
@@ -2145,17 +2142,25 @@ void runGraphics() {
                         strcpy(statusMessage, "Route booked!");
                         showRouteSelectionPanel = false;
                         selectedRouteIndex = -1;
+                        clickedInsidePanel = true;
+                    }
+                    else {
+                        // Check if clicking route selection buttons
+                        int startIndex = routePageIndex * routesPerPage;
+                        int endIndex = minInt(startIndex + routesPerPage, foundJourneysCount);
+                        
+                        for (int i = startIndex; i < endIndex && i < startIndex + MAX_ROUTE_BUTTONS; i++) {
+                            int displayIndex = i - startIndex;
+                            if (btnSelectRoute[displayIndex].isClicked(pos)) {
+                                selectedRouteIndex = i;  // Store actual index in foundJourneys
+                                clickedInsidePanel = true;
+                                break;
+                            }
+                        }
                     }
                     
-                    // Check if clicking cancel/close button
-                    if (btnCancelRoutePanel.isClicked(pos)) {
-                        showRouteSelectionPanel = false;
-                        selectedRouteIndex = -1;
-                        strcpy(statusMessage, "Booking cancelled");
-                    }
-                    
-                    // Click outside panel closes it
-                    if (!clickedRouteButton && (pos.x < MAP_OFFSET_X + 350 || pos.x > MAP_OFFSET_X + 900 || 
+                    // Click outside panel closes it - only if no button was clicked
+                    if (!clickedInsidePanel && (pos.x < MAP_OFFSET_X + 350 || pos.x > MAP_OFFSET_X + 900 || 
                                                  pos.y < 150 || pos.y > 700)) {
                         showRouteSelectionPanel = false;
                         selectedRouteIndex = -1;
@@ -2323,7 +2328,7 @@ void runGraphics() {
             int startIndex = routePageIndex * routesPerPage;
             int endIndex = minInt(startIndex + routesPerPage, foundJourneysCount);
             
-            for (int i = startIndex; i < endIndex && i < 10; i++) {
+            for (int i = startIndex; i < endIndex && i < startIndex + MAX_ROUTE_BUTTONS; i++) {
                 int displayIndex = i - startIndex;
                 btnSelectRoute[displayIndex].update(mPos, mousePressed);
             }
@@ -2902,7 +2907,7 @@ void runGraphics() {
             int startIndex = routePageIndex * routesPerPage;
             int endIndex = minInt(startIndex + routesPerPage, foundJourneysCount);
             
-            for (int i = startIndex; i < endIndex && i < 10; i++) {
+            for (int i = startIndex; i < endIndex && i < startIndex + MAX_ROUTE_BUTTONS; i++) {
                 Journey& journey = foundJourneys[i];
                 if (journey.legCount == 0) continue;
                 
