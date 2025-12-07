@@ -1425,6 +1425,22 @@ void drawScheduledShips(sf::RenderWindow& window, sf::Font& font, sf::Vector2i m
         window.draw(tooltipTextObj);
     }
 }
+// ==========================================
+// Helper: Draw Thick Line using Rectangle
+// ==========================================
+void drawThickLine(sf::RenderWindow& window, sf::Vector2f point1, sf::Vector2f point2, float thickness, sf::Color color) {
+    sf::Vector2f diff = point2 - point1;
+    float length = std::sqrt(diff.x * diff.x + diff.y * diff.y);
+    float angle = std::atan2(diff.y, diff.x) * 180.0f / 3.14159f;
+
+    sf::RectangleShape line(sf::Vector2f(length, thickness));
+    line.setOrigin(0, thickness / 2.0f); // Center the thickness vertically
+    line.setPosition(point1);
+    line.setRotation(angle);
+    line.setFillColor(color);
+
+    window.draw(line);
+}
 
 // ==========================================
 // Forward Declarations
@@ -1562,9 +1578,10 @@ void dijkstra_shortest_cost_scheduled(int source, int destination, Date userDate
                 if (r->arrivalTime.hour < r->departureTime.hour) 
                     routeArrivalTime += 1440;
                 
-                if (departureTime >= minDepartureTime && meetsTimeLimit(departureTime, routeArrivalTime)) {
-                    int edgeCost = r->cost + ports[v].dailyCharge;
-                    long long newCost = ports[u].minCost + edgeCost;
+               if (departureTime >= minDepartureTime && meetsTimeLimit(departureTime, routeArrivalTime)) {
+    // FIX: Sirf Voyage Cost (r->cost) use karein taake Book Route se match kare
+    int edgeCost = r->cost; 
+    long long newCost = ports[u].minCost + edgeCost;
                     
                     if (!ports[v].visited && newCost < ports[v].minCost) {
                         ports[v].minCost = newCost;
@@ -2934,12 +2951,16 @@ void runGraphics() {
                             window.draw(glowLine2, 2, sf::Lines);
                         }
 
-                        sf::Vertex line[] = {
-                            sf::Vertex(p1, legColor),
-                            sf::Vertex(p2, legColor)
-                        };
-                        window.draw(line, 2, sf::Lines);
+                       // Agar line active hai, to neeche ek soft glow draw karein
+                        if (legColor.a > 100) { 
+                            sf::Color glowCol = legColor;
+                            glowCol.a = 80; // Zyada transparent
+                            drawThickLine(window, p1, p2, 6.0f, glowCol); // 6px wide glow
+                        }
 
+                        // 2. Draw Main Route Line
+                        // Normal thickness 3.0f rakhein (jo pehle 1.0f thi)
+                        drawThickLine(window, p1, p2, 3.0f, legColor);
                         // Draw ship simulation if active (ONLY our ship - removed white particle)
                         if (shipSim.isRunning && shipSim.selectedJourneyIndex == 0 && k == shipSim.currentLegIndex 
                             && (shipSim.status == ShipSimulation::SAILING || shipSim.status == ShipSimulation::DEPARTING)) {
