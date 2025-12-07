@@ -140,6 +140,13 @@ bool* exploredPorts = nullptr;
 bool* finalPathPorts = nullptr;
 float explorationProgress = 0.0f;
 bool showingDijkstra = false;
+// ==========================================
+// Feature 7: Subgraph Query Globals
+// ==========================================
+bool showSubgraphMode = false;       // Toggle for the subgraph view
+char queryCompanyString[50] = "";    // Company to filter by (empty = all)
+bool queryCalmWeatherOnly = false;   // Weather filter toggle
+bool* activeSubgraphPorts = nullptr; // Array to track which ports remain active
 
 // ==========================================
 // Simulation State
@@ -274,9 +281,9 @@ sf::Color COL_STATUS_WARNING(255, 200, 100);
 sf::Color COL_BTN_DISABLED(80, 80, 80);  // Disabled button color for route selection
 
 // Route Selection Panel Constants
-const int ROUTE_INFO_BUFFER_SIZE = 500;
+const int ROUTE_INFO_BUFFER_SIZE = 1500;
 const int COMPANIES_BUFFER_SIZE = 250;
-const int MAX_LEGS_TO_DISPLAY = 5;  // Maximum number of legs to display in route panel
+const int MAX_LEGS_TO_DISPLAY = 15;  // Maximum number of legs to display in route panel
 const int PORT_NAME_MAX_LEN = 20;   // Maximum length for port names in display
 const int COMPANY_NAME_MAX_LEN = 15; // Maximum length for company names in display
 const int MAX_ROUTE_BUTTONS = 10;    // Maximum number of route selection buttons
@@ -1021,13 +1028,17 @@ void loadData() {
                 Route* r = new Route;
                 r->destinationIndex = v; r->cost = c; strcpy(r->company, co);
                 r->voyageDate = dt; r->departureTime = dep; r->arrivalTime = arr;
+                // FEATURE 7: Simulate Weather Data
+                // 20% chance of a route being "Stormy"
+                r->isStormy = (rand() % 100) < 20;
                 r->next = ports[u].headRoute; ports[u].headRoute = r;
+                
             }
         }
     }
 }
 
-// ==========================================
+// =========================================
 // Scheduled Ships Functions
 // ==========================================
 
@@ -2641,13 +2652,42 @@ void runGraphics() {
                     }
                     
                     // Click outside panel closes it - only if no button was clicked
-                    if (!clickedInsidePanel && (pos.x < MAP_OFFSET_X + 350 || pos.x > MAP_OFFSET_X + 900 || 
-                                                 pos.y < 150 || pos.y > 700)) {
+                   // === FIX START: Dynamic Boundary Check ===
+                    
+                    // 1. Calculate Panel Dimensions (Same as Drawing Logic)
+                    float dPanelWidth = 700.0f; // Jo width aapne set ki hai (580 ya 700)
+                    float dBaseHeight = 100.0f; // Jo base height aapne set ki hai
+                    
+                    int dStart = routePageIndex * routesPerPage;
+                    int dEnd = minInt(dStart + routesPerPage, foundJourneysCount);
+                    
+                    // Find max legs on this page to calculate height
+                    int dMaxLegs = 1;
+                    for (int i = dStart; i < dEnd && i < dStart + MAX_ROUTE_BUTTONS; i++) {
+                        if (foundJourneys[i].legCount > dMaxLegs) dMaxLegs = foundJourneys[i].legCount;
+                    }
+                    
+                    // Calculate Height limits (Same as Drawing)
+                    float dRoutesHeight = (dEnd - dStart) * (dBaseHeight + (dMaxLegs * 70.0f)); 
+                    float dPanelHeight = 200.0f + dRoutesHeight; // 200 is fixed bottom height
+                    
+                    if (dPanelHeight < 350.0f) dPanelHeight = 350.0f;
+                    if (dPanelHeight > 850.0f) dPanelHeight = 850.0f;
+                    
+                    // Calculate X and Y position
+                    float dPanelX = MAP_OFFSET_X + (1536 - dPanelWidth) / 2.0f;
+                    float dPanelY = (1024 - dPanelHeight) / 2.0f;
+                    
+                    // 2. Check if Click is OUTSIDE this dynamic box
+                    bool isOutsideX = (pos.x < dPanelX || pos.x > dPanelX + dPanelWidth);
+                    bool isOutsideY = (pos.y < dPanelY || pos.y > dPanelY + dPanelHeight);
+                    
+                    // Only close if click is truly outside
+                    if (!clickedInsidePanel && (isOutsideX || isOutsideY)) {
                         showRouteSelectionPanel = false;
                         selectedRouteIndex = -1;
                     }
-                    
-                    // Don't process other clicks when panel is open
+                
                     continue;
                 }
                 
@@ -2729,16 +2769,20 @@ void runGraphics() {
                 }
                 
                 if(btnClear.isClicked(pos)) {
-                    selectedStart = -1; selectedEnd = -1; showJourneys = false;
+                  selectedStart = -1; selectedEnd = -1; showJourneys = false;
                     bookingMode = 0;
                     showingDijkstra = false;
                     
+                    // === FIX START: Clear Route Data ===
+                    foundJourneysCount = 0;           // Routes zero karein
+                    showRouteSelectionPanel = false;  // Panel band karein
+                    selectedRouteIndex = -1;          // Selection hatayen
+                    confirmedRouteIndex = -1;         // Confirmed route hatayen
+                    routePageIndex = 0;               // Page 1 par wapis layen
+                    // === FIX END ===
+
                     // Reset ship simulation
                     shipSim.isRunning = false;
-                    shipSim.currentLegIndex = 0;
-                    shipSim.legProgress = 0;
-                    logCount = 0;
-                    logStartIndex = 0;
                     
                     userPrefs.usePreferences = false;
                     userPrefs.preferredCompanyCount = 0;
@@ -3442,7 +3486,12 @@ void runGraphics() {
                 if (journey.legCount == 1) {
                     routeBoxHeight = 85.0f;
                 } else {
-                    routeBoxHeight = 95.0f + (journey.legCount * 35.0f);
+                    // Yahan hum ensure karenge ke height Leg Count ke hisaab se barhay
+                    // Aur MAX limit se zyada na ho
+                    int legsToShow = (journey.legCount > MAX_LEGS_TO_DISPLAY) ? MAX_LEGS_TO_DISPLAY : journey.legCount;
+                    
+                    // Height calculation update karein (70.0f per leg)
+                    routeBoxHeight = 95.0f + (legsToShow * 70.0f); 
                 }
                 
                 sf::RectangleShape routeBox(sf::Vector2f(panelWidth - 40, routeBoxHeight));
