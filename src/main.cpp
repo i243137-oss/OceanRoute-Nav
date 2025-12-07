@@ -755,6 +755,9 @@ void setPos(const char* name, float x, float y) {
     if(idx != -1) { 
         ports[idx].x = x + MAP_OFFSET_X; 
         ports[idx].y = y; 
+    }else {
+        // === FIX 2: Print warning if coordinate setting fails ===
+        cout << "COORD ERROR: Could not set position for '" << name << "' (Name mismatch?)" << endl;
     }
 }
 
@@ -853,16 +856,27 @@ Date parseDate(char* s) {
 // Calculate voyage duration in minutes for a journey
 int calculateVoyageDuration(Journey& journey) {
     if (journey.legCount == 0) return 0;
+    
+    // Get start time of the FIRST leg
     long long departure = getMinutes(journey.legs[0]->voyageDate, journey.legs[0]->departureTime);
+    
+    // Get arrival time of the LAST leg
     Route* lastLeg = journey.legs[journey.legCount - 1];
     long long arrival = getMinutes(lastLeg->voyageDate, lastLeg->arrivalTime);
-    // Calculate duration (getMinutes returns absolute time, so this handles multi-day journeys correctly)
-    long long duration = arrival - departure;
-    // Validate that duration is non-negative (arrival should be after departure)
-    if (duration < 0) {
-        // This shouldn't happen with correct data, but return 0 as a safe fallback
-        return 0;
+    
+    // === FIX START: Handle overnight arrival ===
+    // If arrival hour is smaller than departure hour, it means it's the next day.
+    // We add 1440 minutes (24 hours) to the arrival time.
+    if (lastLeg->arrivalTime.hour < lastLeg->departureTime.hour) {
+        arrival += 1440;
     }
+    // === FIX END ===
+
+    long long duration = arrival - departure;
+    
+    // Safety check
+    if (duration < 0) return 0;
+    
     return (int)duration;
 }
 
@@ -973,6 +987,8 @@ void loadData() {
         for (int j = 0; j < 10; j++) {
             portQueues[i].ships[j] = 0.0f;
         }
+        ports[i].x = 0; 
+        ports[i].y = 0;
     }
     
     // Initialize other ships
@@ -1892,6 +1908,10 @@ void removeShipFromActiveList(int shipId) {
 
 void spawnShip(Journey& journey) {
     if (journey.legCount == 0) return;
+    if (selectedStart == -1 || selectedEnd == -1) {
+        cout << "Error: Cannot spawn ship. Start/End port missing." << endl;
+        return;
+    }
     
     Ship* ship = new Ship;
     ship->shipId = nextShipId++;
